@@ -5,8 +5,10 @@
 # UI (overlay, captions window, tray)
 PySide6>=6.6
 
-# Speech-to-text
-faster-whisper>=1.0.3
+# Speech-to-text: Whisper on the NPU (falls back to CPU everywhere else)
+openvino>=2025.0
+openvino-genai>=2025.0
+huggingface-hub>=0.25
 
 # Audio capture + DSP
 numpy>=1.24
@@ -19,6 +21,3 @@ psutil>=5.9
 # Text-chat translation
 deep-translator>=1.11
 requests>=2.31
-
-# GPU-utilisation probe (optional at runtime, cheap to ship)
-nvidia-ml-py>=12.535

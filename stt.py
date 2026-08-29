@@ -1,64 +1,75 @@
-"""Speech-to-text and translation.
+"""Speech-to-text, running on the NPU when the machine has one.
 
-faster-whisper does the heavy lifting. Two translation modes are supported:
+Whisper runs through OpenVINO GenAI rather than a CPU/CUDA-only runtime, which
+buys the thing this app cares about most: an Intel NPU ("AI Boost") does the
+transcription without touching the GPU at all, so captions cost the game
+nothing. On a Core Ultra the NPU is also simply faster than the CPU at this --
+roughly 5x on the `small` model.
 
-  * "whisper"  -> Whisper's built-in translate task turns foreign speech
-                  directly into English in a single pass. Best for
-                  understanding Russian (or any language) teammates.
-  * "lmstudio" -> transcribe in the original language, then send the text to a
-                  local model served by LM Studio for translation into any
-                  target language.
+Device order is NPU, then CPU. The GPU is deliberately *not* chosen
+automatically: on a gaming machine that is the part running Counter-Strike.
+Set `stt.device` to "GPU" to override.
+
+Translation is Whisper's own translate task, which turns speech in any language
+directly into English in a single pass. It is entirely local -- no server, no
+API key, nothing to install alongside.
 """
-import glob
 import os
 import re
-import site
 import sys
 
 import numpy as np
 
 
-def _add_cuda_dll_dirs():
-    """On Windows, make the pip-installed NVIDIA CUDA/cuDNN DLLs discoverable so
-    ctranslate2 can load them for GPU inference. Without this, faster-whisper
-    silently can't find cuDNN and GPU mode fails. Must run before ctranslate2
-    is imported."""
-    if not sys.platform.startswith("win"):
-        return
-    candidates = []
-    if getattr(sys, "frozen", False):
-        # PyInstaller bundle: CUDA DLLs are flattened next to the app.
-        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-        candidates.append(base)
-        candidates += glob.glob(os.path.join(base, "nvidia", "*", "bin"))
-    else:
-        roots = set()
-        try:
-            roots.update(site.getsitepackages())
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            roots.add(site.getusersitepackages())
-        except Exception:  # noqa: BLE001
-            pass
-        for root in roots:
-            candidates += glob.glob(os.path.join(root, "nvidia", "*", "bin"))
+def _add_openvino_dll_dirs():
+    """Make the bundled OpenVINO runtime loadable inside a frozen build.
 
+    OpenVINO ships its core, its device plugins (CPU/GPU/NPU) and the
+    tokenizers extension as loose DLLs that get loaded by name at runtime, not
+    linked at import. In a PyInstaller bundle nothing puts their folders on the
+    DLL search path, so the NPU plugin is invisible and openvino_tokenizers.dll
+    fails with "error 126". Register the directories before OpenVINO is
+    imported and both problems go away.
+    """
+    if not sys.platform.startswith("win") or not getattr(sys, "frozen", False):
+        return
+    base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     found = []
-    for d in candidates:
+    for rel in (os.path.join("openvino", "libs"),
+                os.path.join("openvino_tokenizers", "lib"),
+                "openvino_genai",
+                "."):
+        d = os.path.abspath(os.path.join(base, rel))
         if os.path.isdir(d):
             found.append(d)
             try:
                 os.add_dll_directory(d)
             except Exception:  # noqa: BLE001
                 pass
-    # Also prepend to PATH so transitive deps (cublas -> cudart, cudnn -> ...)
-    # resolve via the standard search order.
     if found:
         os.environ["PATH"] = os.pathsep.join(found) + os.pathsep + os.environ.get("PATH", "")
 
 
-_add_cuda_dll_dirs()
+_add_openvino_dll_dirs()
+
+# Short names -> the pre-converted OpenVINO models on HuggingFace. A full repo
+# id or a local directory can also be given in stt.model.
+MODEL_REPOS = {
+    "tiny": "OpenVINO/whisper-tiny-fp16-ov",
+    "base": "OpenVINO/whisper-base-fp16-ov",
+    "small": "OpenVINO/whisper-small-fp16-ov",
+    "medium": "OpenVINO/whisper-medium-fp16-ov",
+    "large-v3-turbo": "OpenVINO/whisper-large-v3-turbo-fp16-ov",
+}
+
+_TARGET_CODES = {"english": "en", "russian": "ru", "ukrainian": "uk",
+                 "spanish": "es", "portuguese": "pt", "german": "de",
+                 "french": "fr", "polish": "pl", "italian": "it", "turkish": "tr"}
+
+
+def _to_lang_code(name):
+    n = (name or "english").strip().lower()
+    return _TARGET_CODES.get(n, n[:2])
 
 
 def _normalize_audio(audio, target_peak=0.95):
@@ -71,16 +82,6 @@ def _normalize_audio(audio, target_peak=0.95):
     if peak > 1e-4:
         return (audio * (target_peak / peak)).astype(np.float32)
     return audio
-
-
-_TARGET_CODES = {"english": "en", "russian": "ru", "ukrainian": "uk",
-                 "spanish": "es", "portuguese": "pt", "german": "de",
-                 "french": "fr", "polish": "pl", "italian": "it", "turkish": "tr"}
-
-
-def _to_lang_code(name):
-    n = (name or "english").strip().lower()
-    return _TARGET_CODES.get(n, n[:2])
 
 
 # Whisper happily "transcribes" silence/noise into these stock phrases. We
@@ -120,176 +121,132 @@ def _collapse_repeats(text, max_repeats=2):
     return " ".join(p for p in out if p).strip()
 
 
-class LMStudio:
-    """Minimal OpenAI-compatible client for LM Studio's local server.
-    Used for the optional voice-translation engine and for text-chat
-    translation."""
-
-    def __init__(self, tcfg):
-        lm = tcfg["lmstudio"]
-        self.url = lm["base_url"].rstrip("/") + "/chat/completions"
-        self.model = lm.get("model", "local-model")
-        self.api_key = lm.get("api_key", "lm-studio")
-        self.target = tcfg.get("target_language", "English")
-        self._warned = False
-
-    def translate(self, text):
-        import requests  # imported lazily so the whisper engine needs no extra deps
-
-        system = (
-            "You are a real-time translator for Counter-Strike voice callouts. "
-            f"Translate the user's message into {self.target}. "
-            "Reply with ONLY the translation -- no quotes, no explanations. "
-            "Keep it short and natural and preserve gaming callouts."
-        )
-        try:
-            resp = requests.post(
-                self.url,
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": text},
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 120,
-                    "stream": False,
-                },
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=20,
-            )
-            resp.raise_for_status()
-            out = resp.json()["choices"][0]["message"]["content"].strip()
-            return out.strip().strip('"').strip()
-        except Exception as e:  # noqa: BLE001
-            if not self._warned:
-                print(f"[lmstudio] translation unavailable ({e}). "
-                      "Is LM Studio's server running with a model loaded?")
-                self._warned = True
-            return None
-
-
 class Transcriber:
-    def __init__(self, cfg):
+    def __init__(self, cfg, status_cb=None):
         self.cfg = cfg
         self.tcfg = cfg["translation"]
+        self.scfg = cfg["stt"]
+        self.status_cb = status_cb
         self.min_chars = cfg["vad"].get("min_chars", 2)
-        self.beam_size = cfg["stt"].get("beam_size", 5)
-        self.only_foreign = self.tcfg.get("only_foreign", True)
-        self.only_foreign_min_prob = float(
-            self.tcfg.get("only_foreign_min_prob", 0.6))
+        self.beam_size = max(1, int(self.scfg.get("beam_size", 1)))
+        self.only_foreign = self.tcfg.get("only_foreign", False)
         self.target_code = _to_lang_code(self.tcfg.get("target_language", "English"))
         self._last_text = ""      # suppress back-to-back identical captions
+        self.device = "CPU"
+        self.device_summary = "CPU"
+        self._pipe = None
+        self._load()
 
-        self.lm = None
-        if self.tcfg.get("engine") == "lmstudio":
-            self.lm = LMStudio(self.tcfg)
-        elif (self.tcfg.get("engine") == "whisper"
-              and self.tcfg.get("target_language", "English").lower() not in ("english", "en")):
-            print("[stt] note: the 'whisper' translate engine only outputs English. "
-                  "Switch translation.engine to 'lmstudio' for other languages.")
-
-        self._load_models()
-
-    # -- model loading -----------------------------------------------------
-    def _cuda_available(self):
-        try:
-            import ctranslate2
-            return ctranslate2.get_cuda_device_count() > 0
-        except Exception:  # noqa: BLE001
-            return False
-
-    def _load_models(self):
-        """Load a CPU model (always, as the safe fallback) and -- when a GPU is
-        present -- a bigger GPU model. Each utterance is then routed to whichever
-        is appropriate: GPU when it has headroom, CPU when the game is maxing the
-        GPU, so captions never cost you frames."""
-        from faster_whisper import WhisperModel
-
-        scfg = self.cfg["stt"]
-        device_pref = scfg.get("device", "auto")
-        # The shareable single-file exe ships no CUDA libs -> always CPU.
-        if getattr(sys, "frozen", False) and device_pref == "auto":
-            device_pref = "cpu"
-
-        threads = scfg.get("cpu_threads", 4)
-        cpu_name = scfg.get("cpu_model", scfg.get("model", "small"))
-        gpu_name = scfg.get("gpu_model", "medium")
-        cpu_ct = scfg.get("cpu_compute_type", "int8")
-        gpu_ct = scfg.get("gpu_compute_type", "float16")
-        self.gpu_busy_threshold = scfg.get("gpu_busy_threshold", 95)
-        self.cpu_model = None
-        self.gpu_model = None
-        self._nvml = None
-
-        if device_pref != "cuda":
-            self.cpu_model = WhisperModel(cpu_name, device="cpu",
-                                          compute_type=cpu_ct, cpu_threads=threads)
-            print(f"[stt] CPU model '{cpu_name}' ready ({cpu_ct})")
-
-        if device_pref in ("auto", "cuda") and self._cuda_available():
+    # -- setup -------------------------------------------------------------
+    def _say(self, msg):
+        print(f"[stt] {msg}")
+        if self.status_cb:
             try:
-                self.gpu_model = WhisperModel(gpu_name, device="cuda",
-                                              compute_type=gpu_ct)
-                self._init_nvml()
-                note = (f"used when GPU < {self.gpu_busy_threshold}% busy, else CPU"
-                        if self._nvml is not None else "GPU-usage monitor off")
-                print(f"[stt] GPU model '{gpu_name}' ready ({note})")
-            except Exception as e:  # noqa: BLE001
-                print(f"[stt] GPU model unavailable ({e}); using CPU only")
-                self.gpu_model = None
+                self.status_cb(msg)
+            except Exception:  # noqa: BLE001
+                pass
 
-        if self.cpu_model is None and self.gpu_model is None:
-            self.cpu_model = WhisperModel(cpu_name, device="cpu",
-                                          compute_type=cpu_ct, cpu_threads=threads)
-            print(f"[stt] CPU model '{cpu_name}' ready (fallback)")
+    def _pick_device(self):
+        """NPU first (it leaves the GPU free for the game), then CPU.
 
-        self.device_summary = ("GPU + CPU fallback" if self.gpu_model and self.cpu_model
-                               else "GPU" if self.gpu_model else "CPU")
+        The GPU is never picked automatically -- on a gaming machine that is
+        the device running Counter-Strike, and stealing it would defeat the
+        point of the whole design. `stt.device` overrides.
+        """
+        import openvino as ov
 
-    def _init_nvml(self):
+        want = (self.scfg.get("device") or "auto").strip()
         try:
-            import pynvml
-            pynvml.nvmlInit()
-            self._pynvml = pynvml
-            self._nvml = pynvml.nvmlDeviceGetHandleByIndex(0)
-        except Exception:  # noqa: BLE001
-            self._nvml = None
+            available = list(ov.Core().available_devices)
+        except Exception as e:  # noqa: BLE001
+            print(f"[stt] could not enumerate devices ({e}); using CPU")
+            return "CPU", ["CPU"]
 
-    def _gpu_busy(self):
-        if self._nvml is None:
-            return False
+        if want.lower() != "auto":
+            # Honour an exact name ("GPU.1") or a family ("GPU").
+            for dev in available:
+                if dev.lower() == want.lower() or dev.lower().startswith(want.lower() + "."):
+                    return dev, available
+            print(f"[stt] requested device {want!r} not present "
+                  f"(have {available}); falling back to auto")
+
+        for dev in available:
+            if dev.upper().startswith("NPU"):
+                return dev, available
+        return "CPU", available
+
+    def _model_path(self):
+        """Resolve the model to a local directory, downloading it once into the
+        app's data folder if it isn't there yet."""
+        import config as config_mod
+
+        name = (self.scfg.get("model") or "small").strip()
+        if os.path.isdir(name):
+            return name
+
+        repo = MODEL_REPOS.get(name.lower(), name)
+        target = os.path.join(config_mod.data_dir(), "models", name)
+        marker = os.path.join(target, "openvino_encoder_model.xml")
+        if os.path.isfile(marker):
+            return target      # already here; never touch the network
+
+        # local_dir gives a plain folder of real files. The default HF cache
+        # would instead build a blobs/snapshots tree joined by symlinks, and
+        # creating a symlink on Windows needs Developer Mode or admin rights --
+        # which most people running a downloaded .exe will not have.
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+        from huggingface_hub import snapshot_download
+
+        self._say(f"Downloading the {name} speech model — one time, "
+                  "then it runs entirely offline.")
+        os.makedirs(target, exist_ok=True)
+        snapshot_download(repo, local_dir=target,
+                          allow_patterns=["*.xml", "*.bin", "*.json", "*.txt"])
+        if not os.path.isfile(marker):
+            raise RuntimeError(f"model download incomplete: {target}")
+        return target
+
+    def _load(self):
+        import openvino_genai as ov_genai
+        import config as config_mod
+
+        path = self._model_path()
+        device, available = self._pick_device()
+
+        # Compiling for the NPU takes about a minute the first time. Cache the
+        # compiled blob so every later launch is a couple of seconds.
+        ov_cache = os.path.join(config_mod.data_dir(), "device-cache")
+        os.makedirs(ov_cache, exist_ok=True)
+
+        def build(dev):
+            return ov_genai.WhisperPipeline(path, device=dev, CACHE_DIR=ov_cache)
+
+        if not device.upper().startswith("CPU"):
+            self._say(f"Preparing {device} — the first run compiles the model "
+                      "and takes about a minute.")
         try:
-            util = self._pynvml.nvmlDeviceGetUtilizationRates(self._nvml).gpu
-            return util > self.gpu_busy_threshold
-        except Exception:  # noqa: BLE001
-            return False
+            self._pipe = build(device)
+        except Exception as e:  # noqa: BLE001
+            print(f"[stt] {device} unavailable ({e}); falling back to CPU")
+            device = "CPU"
+            self._pipe = build(device)
 
-    def _pick_model(self):
-        # GPU when we have one and the game isn't slamming it; otherwise CPU.
-        if self.gpu_model is not None and self.cpu_model is not None:
-            return self.cpu_model if self._gpu_busy() else self.gpu_model
-        return self.gpu_model or self.cpu_model
+        self.device = device
+        self.device_summary = ("NPU — GPU left free for the game"
+                               if device.upper().startswith("NPU") else device)
+        print(f"[stt] '{self.scfg.get('model', 'small')}' ready on {device} "
+              f"(devices seen: {available})")
 
     # -- transcription -----------------------------------------------------
-    def _run_whisper(self, audio, task="transcribe", language=None):
-        segments, info = self._pick_model().transcribe(
-            audio,
-            task=task,
-            language=language,
-            beam_size=self.beam_size,
-            vad_filter=True,
-            condition_on_previous_text=False,
-            no_speech_threshold=0.6,
-        )
-        parts = []
-        for seg in segments:
-            if getattr(seg, "no_speech_prob", 0.0) > 0.7:
-                continue
-            parts.append(seg.text)
-        return ("".join(parts).strip(),
-                info.language,
-                float(getattr(info, "language_probability", 0.0) or 0.0))
+    def _run(self, audio, task="transcribe", language=None):
+        kwargs = {"task": task, "return_timestamps": False}
+        if self.beam_size > 1:
+            kwargs["num_beams"] = self.beam_size
+        if language:
+            kwargs["language"] = f"<|{language}|>"
+        result = self._pipe.generate(audio, **kwargs)
+        return str(result).strip(), (getattr(result, "language", "") or "").strip()
 
     def _clean(self, text, dedupe=False):
         t = _collapse_repeats((text or "").strip())
@@ -309,20 +266,6 @@ class Transcriber:
     def _is_target_lang(self, lang):
         return (lang or "").strip().lower() == self.target_code
 
-    def _skip_as_target_lang(self, lang, prob):
-        """True when this clip is confidently already in the target language.
-
-        Whisper falls back to guessing "en" on short or noisy CS2 voice clips,
-        so a low-confidence "en" is not evidence of English. Requiring a
-        minimum probability keeps foreign callouts from being silently dropped.
-        """
-        if not (self.only_foreign and self._is_target_lang(lang)):
-            return False
-        if prob < self.only_foreign_min_prob:
-            print(f"[stt] kept: detected {lang} but only {prob:.0%} confident")
-            return False
-        return True
-
     def process(self, source_key, audio):
         """Returns a result dict or None if nothing worth showing."""
         audio = _normalize_audio(audio)
@@ -330,45 +273,29 @@ class Transcriber:
             self.tcfg.get("enabled", True)
             and source_key in self.tcfg.get("translate_sources", [])
         )
-        engine = self.tcfg.get("engine", "whisper")
 
-        # Fast path: foreign speech -> English in a single Whisper pass.
-        if do_translate and engine == "whisper":
-            text, lang, prob = self._run_whisper(audio, task="translate")
-            # Only show foreign speech: skip anything Whisper is confident is
-            # already in the target language (your English friends/teammates,
-            # your own mic bleed, "Thank you"-type noise).
-            if self._skip_as_target_lang(lang, prob):
-                print(f"[stt] skipped (detected {lang} @ {prob:.0%}, not foreign)")
+        if do_translate:
+            # One pass: speech in any language straight out as English.
+            text, lang = self._run(audio, task="translate")
+            # only_foreign is off by default now. Whisper guesses "en" on
+            # short, noisy CS2 clips, and an earlier build trusted that guess
+            # absolutely -- it discarded 95% of every caption it produced.
+            if self.only_foreign and self._is_target_lang(lang):
+                print(f"[stt] skipped (detected {lang}, not foreign)")
                 return None
             text = self._clean(text, dedupe=True)
             if not text:
                 return None
             original = None
             if self.tcfg.get("show_original"):
-                otext, _, _ = self._run_whisper(audio, task="transcribe",
-                                                language=lang)
+                otext, _ = self._run(audio, task="transcribe", language=lang)
                 original = self._clean(otext)
-            return {"source": source_key, "lang": lang, "lang_prob": prob,
-                    "text": text, "original": original, "translated": True}
+            return {"source": source_key, "lang": lang, "text": text,
+                    "original": original, "translated": True}
 
-        # Otherwise transcribe in the source language first.
-        text, lang, prob = self._run_whisper(audio, task="transcribe")
+        text, lang = self._run(audio, task="transcribe")
         text = self._clean(text, dedupe=True)
         if not text:
             return None
-
-        if do_translate and engine == "lmstudio" and self.lm is not None:
-            if self._skip_as_target_lang(lang, prob):
-                return None
-            translated = self.lm.translate(text)
-            if translated:
-                return {"source": source_key, "lang": lang, "lang_prob": prob,
-                        "text": translated, "original": text, "translated": True}
-            # LM Studio offline -> show the original so nothing is lost.
-            return {"source": source_key, "lang": lang, "lang_prob": prob,
-                    "text": text, "original": None, "translated": False,
-                    "note": "LM Studio offline"}
-
-        return {"source": source_key, "lang": lang, "lang_prob": prob,
-                "text": text, "original": None, "translated": False}
+        return {"source": source_key, "lang": lang, "text": text,
+                "original": None, "translated": False}

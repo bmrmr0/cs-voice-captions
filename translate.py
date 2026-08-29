@@ -4,7 +4,6 @@ Backend is chosen by config (`chat.translator`):
   * "google"   -> deep-translator's free Google endpoint. Best quality, instant,
                   auto-detects the source language. In-match chat is public, so
                   this sends nothing private. (This is what CSTranslator uses.)
-  * "lmstudio" -> local LLM via LM Studio (needs its Local Server running).
   * "off"      -> no translation.
 """
 
@@ -42,15 +41,6 @@ class _GoogleTranslator:
             return None
 
 
-class _LMStudioTranslator:
-    def __init__(self, tcfg):
-        from stt import LMStudio
-        self.lm = LMStudio(tcfg)
-
-    def translate(self, text):
-        return self.lm.translate(text)
-
-
 def make_text_translator(cfg):
     """Returns an object with .translate(text) -> str | None, or None if off."""
     ccfg = cfg.get("chat", {})
@@ -60,6 +50,4 @@ def make_text_translator(cfg):
     engine = ccfg.get("translator", "google").lower()
     if engine == "off":
         return None
-    if engine == "lmstudio":
-        return _LMStudioTranslator(tcfg)
     return _GoogleTranslator(tcfg.get("target_language", "English"))

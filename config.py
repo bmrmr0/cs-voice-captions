@@ -37,49 +37,50 @@ DEFAULTS = {
         "console_log_path": "",        # blank = auto-detect via Steam
         "scopes": ["ALL", "TEAM"],     # which chat channels to show
         "translate": True,             # translate foreign chat
-        "translator": "google",        # "google" | "lmstudio" | "off"
+        "translator": "google",        # "google" | "off"
+                                       # the one thing that uses the network
     },
 
-    # Speech-to-text engine (faster-whisper).
+    # Speech-to-text (Whisper via OpenVINO).
     "stt": {
-        # "auto" = use the GPU when it has headroom, fall back to CPU the moment
-        # the game maxes the GPU (so captions never cost you frames). The
-        # single-file exe has no CUDA, so it always runs CPU. Force "cpu"/"cuda".
+        # "auto" prefers the NPU, then the CPU. The GPU is never picked
+        # automatically -- on a gaming machine that is what runs the game.
+        # Force one with "NPU", "CPU", "GPU", or an exact name like "GPU.1".
         "device": "auto",
-        "gpu_model": "medium",        # model used on the GPU (when it's free)
-        "cpu_model": "small",         # model used on CPU (GPU busy, or no GPU)
-        "gpu_busy_threshold": 95,     # % GPU usage above which we switch to CPU
-        "cpu_compute_type": "int8",   # int8 | int8_float32 | float32
-        "gpu_compute_type": "float16",# float16 | int8_float16 | float32
-        "cpu_threads": 4,             # cap CPU threads so STT doesn't starve the game
-        "beam_size": 5,
+        # tiny | base | small | medium | large-v3-turbo, a HuggingFace repo id,
+        # or a path to an OpenVINO model folder. Downloaded once on first run
+        # and kept in the app data folder.
+        "model": "small",
+        "beam_size": 1,               # >1 is more accurate and slower
     },
 
-    # Translation layer.
+    # Translation. Whisper translates speech in any language straight to
+    # English in a single local pass -- no server, no API key, nothing to
+    # install alongside.
     "translation": {
         "enabled": True,
-        "engine": "whisper",          # "whisper" (audio->English) or "lmstudio"
-        "target_language": "English", # only "English" is supported by whisper engine
-        "only_foreign": True,         # only show foreign speech; skip English (friends/teammates/noise)
-        # Whisper guesses "en" for short/noisy clips. Only *skip* a clip as
-        # "already English" when it is at least this confident, otherwise show
-        # it -- a stray English line beats a silently dropped Russian callout.
-        "only_foreign_min_prob": 0.6,
+        "target_language": "English",  # Whisper's translate task only outputs English
+        # Show ONLY foreign speech and hide English. Off by default: Whisper
+        # guesses "en" on short, noisy CS2 clips, and trusting that guess is
+        # what made an earlier build throw away 95% of its captions.
+        "only_foreign": False,
         "translate_sources": ["teammates"],  # don't translate your own mic
         "show_original": False,       # also show the original (foreign) text
-        "lmstudio": {
-            "base_url": "http://localhost:1234/v1",
-            "model": "local-model",   # any model id loaded in LM Studio
-            "api_key": "lm-studio",
-        },
     },
 
     # Voice-activity detection / utterance segmentation.
     "vad": {
         "aggressiveness": 2,          # 0..3 (webrtcvad); higher = stricter
         "silence_ms": 500,            # trailing silence that ends an utterance (per phrase)
-        "max_utterance_s": 6,         # force-flush so long speech becomes separate captions
+        # Force-flush long speech into separate captions. The old value of 6
+        # was cutting 19% of real utterances mid-sentence, which also hurts
+        # language detection -- Whisper does better on a complete phrase.
+        "max_utterance_s": 8,
         "min_speech_ms": 200,         # drop clips with less real speech than this
+        # Fraction of the clip that must actually be speech. Without this a
+        # single word adrift in six seconds of gunfire reaches Whisper, which
+        # will cheerfully invent a whole sentence out of it.
+        "min_speech_ratio": 0.25,
         "min_chars": 2,               # drop transcripts shorter than this
         "preroll_ms": 300,            # audio kept from just before speech starts
     },
@@ -130,20 +131,54 @@ DEFAULTS = {
 }
 
 
-def project_root():
-    """Where config.json lives.
-
-    Frozen (PyInstaller) build -> next to the .exe, so config.json stays
-    user-editable. Running from source -> the repo root, which is this file's
-    own directory.
-    """
+def app_dir():
+    """The folder the app lives in: next to the .exe when frozen, else the
+    repo root (this file's own directory)."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def bundle_dir():
+    """Where read-only data bundled *inside* the exe is unpacked at runtime.
+    Same as app_dir() when running from source."""
+    return getattr(sys, "_MEIPASS", None) or app_dir()
+
+
+def data_dir():
+    """Where the app writes: settings, the downloaded model, the compiled
+    device cache, transcripts.
+
+    LOCALAPPDATA, so the executable itself stays a single self-contained file
+    you can download and run from anywhere. Drop a file named `portable.txt`
+    next to the exe to keep everything in its own folder instead -- useful on
+    a USB stick.
+    """
+    here = app_dir()
+    if os.path.isfile(os.path.join(here, "portable.txt")):
+        return here
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    path = os.path.join(base, "CSVoiceCaptions")
+    try:
+        os.makedirs(path, exist_ok=True)
+        return path
+    except Exception:  # noqa: BLE001
+        return here
+
+
+# Kept for callers that just want the settings file location.
+def project_root():
+    return data_dir()
+
+
 def config_path():
-    return os.path.join(project_root(), "config.json")
+    """The optional settings file.
+
+    The exe ships with no config.json at all -- every default above is compiled
+    in, so a bare executable is fully configured. Dropping a config.json next
+    to it (or letting the app save one) overrides only the keys it contains.
+    """
+    return os.path.join(data_dir(), "config.json")
 
 
 def _deep_merge(base, over):

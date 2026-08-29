@@ -3,9 +3,10 @@
     .venv\\Scripts\\pip install -r requirements.txt -r requirements-build.txt
     .venv\\Scripts\\python build.py
 
-Produces a single-file, no-console-window executable that only needs
-config.json next to it. Whisper model weights are downloaded on first run
-rather than bundled, which keeps the download to a couple of hundred MB.
+Produces one self-contained, no-console-window executable. Nothing ships
+beside it: every default is compiled in, and the speech model, settings,
+compiled device cache and transcripts all live in
+%LOCALAPPDATA%\CSVoiceCaptions, downloaded once on first run.
 
 The build is deliberately reproducible and identity-free: no absolute paths
 from this machine end up in the binary beyond what PyInstaller needs, and
@@ -31,15 +32,23 @@ HIDDEN_IMPORTS = [
     "psutil",
     "deep_translator",
     "requests",
-    "pynvml",
     "scipy.signal",
+    "openvino",
+    "openvino_genai",
+    "huggingface_hub",
 ]
+
+# OpenVINO loads its core, its CPU/GPU/NPU plugins and the tokenizers
+# extension as loose DLLs by name at runtime. PyInstaller's static analysis
+# cannot see any of that, so collect these packages wholesale.
+COLLECT_ALL = ["openvino", "openvino_genai", "openvino_tokenizers"]
 
 # Nothing here is used at runtime; excluding it keeps the exe from doubling in
 # size because something in the venv happens to import it.
 EXCLUDES = [
     "tkinter", "matplotlib", "IPython", "notebook", "pytest",
     "torch", "torchaudio", "torchvision", "resemblyzer",
+    "faster_whisper", "ctranslate2", "av",
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore",
     "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtMultimedia",
     "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtPdf",
@@ -90,6 +99,8 @@ def main():
     ]
     for mod in HIDDEN_IMPORTS:
         cmd += ["--hidden-import", mod]
+    for pkg in COLLECT_ALL:
+        cmd += ["--collect-all", pkg]
     for mod in EXCLUDES:
         cmd += ["--exclude-module", mod]
     cmd.append(ENTRY)
@@ -102,14 +113,6 @@ def main():
     exe = os.path.join(ROOT, "dist", f"{NAME}.exe")
     if not os.path.isfile(exe):
         sys.exit("[build] PyInstaller reported success but produced no exe")
-
-    # Ship a config next to the exe so the first run is editable without
-    # having to hunt for the example.
-    example = os.path.join(ROOT, "config.example.json")
-    target = os.path.join(ROOT, "dist", "config.json")
-    if os.path.isfile(example) and not os.path.isfile(target):
-        shutil.copyfile(example, target)
-        print("[build] wrote dist/config.json from config.example.json")
 
     size_mb = os.path.getsize(exe) / (1024 * 1024)
     print(f"[build] done: dist/{NAME}.exe ({size_mb:.0f} MB)")

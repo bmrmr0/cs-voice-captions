@@ -126,7 +126,7 @@ class STTWorker(threading.Thread):
     def run(self):
         self.bridge.status.emit("Loading models… (first run downloads Whisper)")
         try:
-            transcriber = Transcriber(self.cfg)
+            transcriber = Transcriber(self.cfg, status_cb=self.bridge.status.emit)
         except Exception as e:  # noqa: BLE001
             self.bridge.status.emit(f"Model load failed: {e}")
             print(f"[stt] fatal: {e}")
@@ -140,8 +140,7 @@ class STTWorker(threading.Thread):
             print(f"[diarize] init failed: {e}")
 
         device = getattr(transcriber, "device_summary", "CPU")
-        self.bridge.status.emit(
-            f"Listening on {device} — captions will appear in the window.")
+        self.bridge.status.emit(f"Listening on {device}.")
 
         while not self.stop_event.is_set():
             try:

@@ -54,12 +54,13 @@ class _Segmenter:
     """Frames -> complete utterances via 'speech then N silent frames'."""
 
     def __init__(self, vad, silence_ms, max_utterance_s, min_speech_ms=200,
-                 preroll_ms=300):
+                 preroll_ms=300, min_speech_ratio=0.25):
         self.vad = vad
         self.silence_frames = max(1, silence_ms // FRAME_MS)
         self.max_frames = max(1, int(max_utterance_s * 1000) // FRAME_MS)
         self.min_speech_frames = max(1, min_speech_ms // FRAME_MS)
         self.preroll = max(0, preroll_ms // FRAME_MS)
+        self.min_speech_ratio = float(min_speech_ratio)
         self.reset()
 
     def reset(self):
@@ -91,11 +92,17 @@ class _Segmenter:
             self.trailing += 1
         if self.trailing >= self.silence_frames or len(self.voiced) >= self.max_frames:
             voiced = self.voiced
-            enough_speech = self.speech_count >= self.min_speech_frames
+            speech, total = self.speech_count, max(1, len(voiced))
             self.reset()
-            # Drop clips that were mostly silence/noise (too few real speech
-            # frames) -- these are what cause garbage/mis-detected captions.
-            return np.concatenate(voiced).astype(np.float32) if enough_speech else None
+            # Two gates, because Whisper will confidently invent a sentence out
+            # of gunfire or a footstep. It needs enough speech in absolute
+            # terms, AND the clip has to be mostly speech rather than a moment
+            # of voice adrift in six seconds of round noise.
+            if speech < self.min_speech_frames:
+                return None
+            if speech / total < self.min_speech_ratio:
+                return None
+            return np.concatenate(voiced).astype(np.float32)
         return None
 
 
@@ -224,9 +231,10 @@ class _BaseSource(threading.Thread):
         self._log(f"VAD backend = {vad.backend}")
         seg = _Segmenter(vad,
                          self.vad_cfg.get("silence_ms", 500),
-                         self.vad_cfg.get("max_utterance_s", 6),
+                         self.vad_cfg.get("max_utterance_s", 8),
                          self.vad_cfg.get("min_speech_ms", 200),
-                         self.vad_cfg.get("preroll_ms", 300))
+                         self.vad_cfg.get("preroll_ms", 300),
+                         self.vad_cfg.get("min_speech_ratio", 0.25))
         for frame in self.frames():
             if self.stop_event.is_set():
                 break
