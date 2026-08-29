@@ -1,0 +1,4 @@
+# Extra tooling needed only to produce dist/CSVoiceCaptions.exe.
+#   .venv\Scripts\pip install -r requirements-build.txt
+#   .venv\Scripts\python build.py
+pyinstaller>=6.6

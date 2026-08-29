@@ -1,0 +1,6 @@
+# Optional: tells distinct teammate voices apart (P1/P2/... + coloured dots).
+# Large (pulls in torch). The app runs fine without it and just labels
+# everyone "TEAM".
+#   .venv\Scripts\pip install -r requirements-diarization.txt
+resemblyzer>=0.1.3
+torch>=2.0

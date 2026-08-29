@@ -1,0 +1,6 @@
+# Normalise line endings so the repo is consistent regardless of platform.
+* text=auto eol=lf
+
+# Windows-only shell scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
