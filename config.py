@@ -60,28 +60,48 @@ DEFAULTS = {
     "translation": {
         "enabled": True,
         "target_language": "English",  # Whisper's translate task only outputs English
-        # Show ONLY foreign speech and hide English. Off by default: Whisper
-        # guesses "en" on short, noisy CS2 clips, and trusting that guess is
-        # what made an earlier build throw away 95% of its captions.
-        "only_foreign": False,
+        # Show ONLY foreign speech and hide English -- you can already
+        # understand your English teammates. Safe now that Silero keeps game
+        # noise out of the transcriber; with the old detector this same
+        # setting discarded 95% of captions, because Whisper guesses "en" on
+        # whatever noise it is handed.
+        "only_foreign": True,
         "translate_sources": ["teammates"],  # don't translate your own mic
         "show_original": False,       # also show the original (foreign) text
     },
 
     # Voice-activity detection / utterance segmentation.
     "vad": {
-        "aggressiveness": 2,          # 0..3 (webrtcvad); higher = stricter
+        # "silero" is a neural detector that actually distinguishes a person
+        # from the game. webrtcvad calls gunfire, footsteps and the music kit
+        # speech continuously, which is what made every clip run to the maximum
+        # length and produced a hallucinated caption for each one.
+        "backend": "silero",          # "silero" | "webrtc" | "energy"
+        "speech_threshold": 0.5,      # silero: 0..1, higher = stricter
+        "aggressiveness": 2,          # 0..3 (webrtcvad only); higher = stricter
         "silence_ms": 500,            # trailing silence that ends an utterance (per phrase)
         # Force-flush long speech into separate captions. The old value of 6
         # was cutting 19% of real utterances mid-sentence, which also hurts
         # language detection -- Whisper does better on a complete phrase.
         "max_utterance_s": 8,
+        # Only translate phrases at least this long, measured from the first
+        # spoken frame to the last (pauses between words count; the preroll and
+        # the silence that ends the phrase do not). Short blurts are where
+        # Whisper hallucinates most -- but note most CS2 callouts are only 1-2
+        # seconds, so raising this trades real callouts for less noise.
+        "min_utterance_s": 3.0,
         "min_speech_ms": 200,         # drop clips with less real speech than this
         # Fraction of the clip that must actually be speech. Without this a
         # single word adrift in six seconds of gunfire reaches Whisper, which
         # will cheerfully invent a whole sentence out of it.
         "min_speech_ratio": 0.25,
         "min_chars": 2,               # drop transcripts shorter than this
+        # Music kits sing the same line every round, so a caption we have
+        # already shown in the last N is almost certainly not a teammate.
+        "repeat_window": 20,
+        # Extra phrases to ignore, as regular expressions. Add music-kit lyrics
+        # or any recurring junk you see, e.g. ["let the bodies hit the floor"].
+        "blocklist": [],
         "preroll_ms": 300,            # audio kept from just before speech starts
     },
 

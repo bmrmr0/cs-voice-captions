@@ -55,6 +55,19 @@ EXCLUDES = [
 ]
 
 
+def silero_model():
+    """The Silero VAD model gets bundled (about 2.7 MB) rather than downloaded,
+    so voice detection works on the very first launch, before anything has
+    been fetched."""
+    try:
+        import silero_vad
+    except ImportError:
+        return None
+    path = os.path.join(os.path.dirname(silero_vad.__file__), "data",
+                        "silero_vad_op18_ifless.onnx")
+    return path if os.path.isfile(path) else None
+
+
 def clean():
     """Remove previous build output. Also the point at which any stale tree
     from another machine (with its paths baked into the .toc files) is gone."""
@@ -99,6 +112,16 @@ def main():
     ]
     for mod in HIDDEN_IMPORTS:
         cmd += ["--hidden-import", mod]
+    model = silero_model()
+    if model:
+        # Landing name is silero_vad.onnx at the bundle root; audio.py looks
+        # for it there first.
+        cmd += ["--add-data", f"{model}{os.pathsep}."]
+        print(f"[build] bundling Silero VAD from {os.path.basename(model)}")
+    else:
+        print("[build] WARNING: silero-vad not installed; the exe will fall "
+              "back to webrtcvad, which cannot tell the game from a person")
+
     for pkg in COLLECT_ALL:
         cmd += ["--collect-all", pkg]
     for mod in EXCLUDES:

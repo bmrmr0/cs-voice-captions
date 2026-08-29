@@ -97,19 +97,10 @@ HALLUCINATIONS = {
 }
 
 
-def _collapse_repeats(text, max_repeats=2):
-    """Whisper loops on near-silence: "Go go go. Go go go. Go go go."
-
-    Collapse any phrase (split on sentence punctuation) repeated more than
-    `max_repeats` times in a row down to `max_repeats` copies, so a stuck
-    decode does not fill the overlay.
-    """
-    if not text:
-        return text
-    parts = re.split(r"(?<=[.!?…])\s+", text)
+def _collapse_runs(items, max_repeats, join):
     out, run, prev = [], 0, None
-    for part in parts:
-        key = part.strip().lower()
+    for item in items:
+        key = item.strip().lower().strip(",.!?…")
         if key and key == prev:
             run += 1
             if run >= max_repeats:
@@ -117,8 +108,33 @@ def _collapse_repeats(text, max_repeats=2):
         else:
             run = 0
             prev = key
-        out.append(part)
-    return " ".join(p for p in out if p).strip()
+        out.append(item)
+    return join.join(o for o in out if o.strip()).strip()
+
+
+def _collapse_repeats(text, max_repeats=2):
+    """Whisper loops when it is fed something that is not speech.
+
+    A real capture produced a single caption reading "yeah, yeah, yeah, ..."
+    two hundred times over. Collapse runs at both levels -- repeated sentences
+    and repeated comma- or space-separated words -- so a stuck decode cannot
+    fill the overlay.
+    """
+    if not text:
+        return text
+    text = _collapse_runs(re.split(r"(?<=[.!?…])\s+", text), max_repeats, " ")
+    text = _collapse_runs(re.split(r",\s*", text), max_repeats, ", ")
+    return _collapse_runs(text.split(" "), max_repeats + 1, " ")
+
+
+def _compile_blocklist(patterns):
+    out = []
+    for pat in patterns or []:
+        try:
+            out.append(re.compile(pat, re.IGNORECASE))
+        except re.error as e:
+            print(f"[stt] ignoring bad blocklist pattern {pat!r}: {e}")
+    return out
 
 
 class Transcriber:
@@ -129,9 +145,14 @@ class Transcriber:
         self.status_cb = status_cb
         self.min_chars = cfg["vad"].get("min_chars", 2)
         self.beam_size = max(1, int(self.scfg.get("beam_size", 1)))
-        self.only_foreign = self.tcfg.get("only_foreign", False)
+        self.only_foreign = self.tcfg.get("only_foreign", True)
+        self.blocklist = _compile_blocklist(cfg["vad"].get("blocklist", []))
         self.target_code = _to_lang_code(self.tcfg.get("target_language", "English"))
         self._last_text = ""      # suppress back-to-back identical captions
+        from collections import deque
+        # Music-kit vocals say the same thing every single round, so anything
+        # we have already shown recently is almost certainly not a teammate.
+        self._recent = deque(maxlen=int(cfg["vad"].get("repeat_window", 20)))
         self.device = "CPU"
         self.device_summary = "CPU"
         self._pipe = None
@@ -255,12 +276,21 @@ class Transcriber:
         norm = t.lower().strip(" .!?,…\"'")
         if norm in HALLUCINATIONS:
             return ""
+        # Music-kit vocals and anything else the user has told us to ignore.
+        for pat in self.blocklist:
+            if pat.search(t):
+                print(f"[stt] blocked (matches {pat.pattern!r}): {t[:60]}")
+                return ""
         # Whisper re-emits the same phrase when it is fed near-silence back to
         # back. One callout is information; the same one five times is noise.
         if dedupe:
             if norm == self._last_text:
                 return ""
+            if norm in self._recent:
+                print(f"[stt] skipped repeat (music kit / jingle?): {t[:50]}")
+                return ""
             self._last_text = norm
+            self._recent.append(norm)
         return t
 
     def _is_target_lang(self, lang):
@@ -277,11 +307,12 @@ class Transcriber:
         if do_translate:
             # One pass: speech in any language straight out as English.
             text, lang = self._run(audio, task="translate")
-            # only_foreign is off by default now. Whisper guesses "en" on
-            # short, noisy CS2 clips, and an earlier build trusted that guess
-            # absolutely -- it discarded 95% of every caption it produced.
+            # Already-English speech is not worth showing: you can hear it.
+            # This is only safe now that Silero keeps game noise out -- the
+            # earlier build ran this filter over webrtcvad's false positives
+            # and threw away 95% of its captions.
             if self.only_foreign and self._is_target_lang(lang):
-                print(f"[stt] skipped (detected {lang}, not foreign)")
+                print(f"[stt] skipped English: {text[:60]}")
                 return None
             text = self._clean(text, dedupe=True)
             if not text:

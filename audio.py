@@ -15,6 +15,7 @@ Each source runs in its own thread, slices the stream into spoken utterances
 with voice-activity detection, and pushes them onto a shared queue for the STT
 worker.
 """
+import os
 import queue
 import threading
 import time
@@ -26,20 +27,109 @@ FRAME_MS = 30                     # webrtcvad accepts 10/20/30 ms frames
 FRAME_SAMPLES = SAMPLE_RATE * FRAME_MS // 1000   # 480 samples / frame
 
 
-class _VAD:
-    """webrtcvad if available, else a simple energy (RMS) gate."""
+def _silero_model_path():
+    """The bundled Silero VAD model, or the one from the installed package."""
+    import config as config_mod
 
-    def __init__(self, aggressiveness=2, energy_threshold=0.012):
-        self.backend = "energy"
-        self._energy_threshold = energy_threshold
-        try:
-            import webrtcvad
-            self._vad = webrtcvad.Vad(int(aggressiveness))
-            self.backend = "webrtc"
-        except Exception:  # noqa: BLE001
-            self._vad = None
+    names = ("silero_vad_op18_ifless.onnx", "silero_vad.onnx")
+    for root in (config_mod.bundle_dir(), config_mod.app_dir()):
+        for name in names:
+            candidate = os.path.join(root, name)
+            if os.path.isfile(candidate):
+                return candidate
+    try:      # running from source
+        import silero_vad
+        return os.path.join(os.path.dirname(silero_vad.__file__), "data",
+                            "silero_vad_op18_ifless.onnx")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+class _SileroVAD:
+    """Neural voice-activity detection, run through OpenVINO.
+
+    This exists because webrtcvad cannot tell Counter-Strike apart from a
+    person. Fed the game's own audio it calls gunfire, footsteps and the music
+    kit "speech" continuously, so every utterance ran to the maximum length and
+    Whisper invented a sentence for each one. Silero scores those at about
+    0.001 and real speech near 1.0.
+
+    Runs on the CPU: the model is ~1 ms per 32 ms chunk, and the NPU is busy
+    with Whisper.
+    """
+
+    CHUNK = 512          # samples at 16 kHz -- what Silero v5 expects
+
+    def __init__(self, threshold=0.5):
+        import openvino as ov
+
+        path = _silero_model_path()
+        if not path or not os.path.isfile(path):
+            raise FileNotFoundError("silero model not found")
+        core = ov.Core()
+        self._req = core.compile_model(core.read_model(path), "CPU").create_infer_request()
+        self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._buf = np.zeros(0, dtype=np.float32)
+        self._prob = 0.0
+        self.threshold = float(threshold)
+
+    def reset(self):
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._buf = np.zeros(0, dtype=np.float32)
+        self._prob = 0.0
 
     def is_speech(self, frame_f32):
+        # Frames are 480 samples and Silero wants 512, so buffer across them
+        # and keep the most recent score.
+        self._buf = np.concatenate([self._buf, frame_f32])
+        while len(self._buf) >= self.CHUNK:
+            chunk, self._buf = self._buf[:self.CHUNK], self._buf[self.CHUNK:]
+            try:
+                out = self._req.infer({"input": chunk.reshape(1, -1),
+                                       "sr": self._sr,
+                                       "state": self._state})
+                named = {k.get_any_name(): v for k, v in out.items()}
+                self._prob = float(np.array(named["output"]).flatten()[0])
+                self._state = np.array(named["stateN"], dtype=np.float32)
+            except Exception:  # noqa: BLE001
+                self._prob = 0.0
+        return self._prob >= self.threshold
+
+
+class _VAD:
+    """Silero if we can load it, else webrtcvad, else a plain energy gate."""
+
+    def __init__(self, aggressiveness=2, energy_threshold=0.012,
+                 backend="silero", speech_threshold=0.5):
+        self.backend = "energy"
+        self._energy_threshold = energy_threshold
+        self._silero = None
+        self._vad = None
+
+        if backend == "silero":
+            try:
+                self._silero = _SileroVAD(speech_threshold)
+                self.backend = "silero"
+                return
+            except Exception as e:  # noqa: BLE001
+                print(f"[audio] Silero VAD unavailable ({e}); falling back")
+
+        if backend in ("silero", "webrtc"):
+            try:
+                import webrtcvad
+                self._vad = webrtcvad.Vad(int(aggressiveness))
+                self.backend = "webrtc"
+            except Exception:  # noqa: BLE001
+                self._vad = None
+
+    def reset(self):
+        if self._silero is not None:
+            self._silero.reset()
+
+    def is_speech(self, frame_f32):
+        if self.backend == "silero":
+            return self._silero.is_speech(frame_f32)
         if self.backend == "webrtc":
             pcm = (np.clip(frame_f32, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
             try:
@@ -54,13 +144,14 @@ class _Segmenter:
     """Frames -> complete utterances via 'speech then N silent frames'."""
 
     def __init__(self, vad, silence_ms, max_utterance_s, min_speech_ms=200,
-                 preroll_ms=300, min_speech_ratio=0.25):
+                 preroll_ms=300, min_speech_ratio=0.25, min_utterance_s=0.0):
         self.vad = vad
         self.silence_frames = max(1, silence_ms // FRAME_MS)
         self.max_frames = max(1, int(max_utterance_s * 1000) // FRAME_MS)
         self.min_speech_frames = max(1, min_speech_ms // FRAME_MS)
         self.preroll = max(0, preroll_ms // FRAME_MS)
         self.min_speech_ratio = float(min_speech_ratio)
+        self.min_phrase_frames = max(0, int(float(min_utterance_s) * 1000) // FRAME_MS)
         self.reset()
 
     def reset(self):
@@ -69,6 +160,8 @@ class _Segmenter:
         self.pre = []
         self.trailing = 0
         self.speech_count = 0
+        self.speech_start = 0     # index in self.voiced where speech begins
+        self.last_voiced = -1     # index in self.voiced of the newest voiced frame
 
     def push(self, frame):
         if self.state == "silence":
@@ -78,29 +171,38 @@ class _Segmenter:
             if self.vad.is_speech(frame):
                 self.state = "speech"
                 self.voiced = list(self.pre)
+                self.speech_start = len(self.voiced)   # preroll is not phrase
                 self.voiced.append(frame)
                 self.pre = []
                 self.trailing = 0
                 self.speech_count = 1
+                self.last_voiced = self.speech_start
             return None
 
         self.voiced.append(frame)
         if self.vad.is_speech(frame):
             self.trailing = 0
             self.speech_count += 1
+            self.last_voiced = len(self.voiced) - 1
         else:
             self.trailing += 1
         if self.trailing >= self.silence_frames or len(self.voiced) >= self.max_frames:
             voiced = self.voiced
             speech, total = self.speech_count, max(1, len(voiced))
+            # How long the phrase itself ran: first voiced frame to last,
+            # ignoring the preroll in front and the silence that ended it.
+            # Pauses between words count, because they are part of the phrase.
+            phrase = max(0, self.last_voiced - self.speech_start + 1)
             self.reset()
-            # Two gates, because Whisper will confidently invent a sentence out
-            # of gunfire or a footstep. It needs enough speech in absolute
-            # terms, AND the clip has to be mostly speech rather than a moment
-            # of voice adrift in six seconds of round noise.
+            # Whisper will confidently invent a sentence out of gunfire, so a
+            # clip has to clear three gates: enough speech in absolute terms,
+            # mostly speech rather than a word adrift in a long noisy clip,
+            # and long enough to be a phrase worth translating.
             if speech < self.min_speech_frames:
                 return None
             if speech / total < self.min_speech_ratio:
+                return None
+            if phrase < self.min_phrase_frames:
                 return None
             return np.concatenate(voiced).astype(np.float32)
         return None
@@ -227,14 +329,17 @@ class _BaseSource(threading.Thread):
         raise NotImplementedError
 
     def run(self):
-        vad = _VAD(self.vad_cfg.get("aggressiveness", 2))
+        vad = _VAD(self.vad_cfg.get("aggressiveness", 2),
+                   backend=self.vad_cfg.get("backend", "silero"),
+                   speech_threshold=self.vad_cfg.get("speech_threshold", 0.5))
         self._log(f"VAD backend = {vad.backend}")
         seg = _Segmenter(vad,
                          self.vad_cfg.get("silence_ms", 500),
                          self.vad_cfg.get("max_utterance_s", 8),
                          self.vad_cfg.get("min_speech_ms", 200),
                          self.vad_cfg.get("preroll_ms", 300),
-                         self.vad_cfg.get("min_speech_ratio", 0.25))
+                         self.vad_cfg.get("min_speech_ratio", 0.25),
+                         self.vad_cfg.get("min_utterance_s", 3.0))
         for frame in self.frames():
             if self.stop_event.is_set():
                 break

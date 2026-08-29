@@ -21,3 +21,4 @@ psutil>=5.9
 # Text-chat translation
 deep-translator>=1.11
 requests>=2.31
+silero-vad>=5.1               # neural VAD model, bundled into the exe

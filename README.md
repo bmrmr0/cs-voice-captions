@@ -14,13 +14,28 @@ audio APIs and the log file CS2 writes itself.
 
 | Pipeline | Source | How |
 | --- | --- | --- |
-| **Voice** | CS2's audio output | Per-process WASAPI loopback captures only `cs2.exe`, so Spotify and Discord don't leak into your captions. Voice activity detection slices it into phrases, then Whisper transcribes and translates them **on the NPU**. |
+| **Voice** | CS2's audio output | Per-process WASAPI loopback captures only `cs2.exe`, so Spotify and Discord don't leak into your captions. A neural voice detector (Silero) picks actual speech out of the gunfire, then Whisper transcribes and translates it **on the NPU**. |
 | **Text chat** | `console.log` | CS2 writes this itself with the `-condebug` launch option. We tail the file and translate what shows up. |
 | **Speakers** | voice fingerprints | Optional. CS2 mixes all teammates into one stream, so real names aren't available — but distinct *voices* can be told apart and get stable labels (P1, P2, …) with their own colours. |
 
 Everything runs locally except text-chat translation, which uses Google
 Translate by default (in-match chat is public; nothing private leaves your
 machine). Set `chat.translator` to `"off"` if you'd rather it didn't.
+
+### Telling a teammate apart from a gunfight
+
+The app is fed *all* of CS2's audio, so the hard part is not transcription — it
+is deciding what counts as someone talking. A conventional voice detector marks
+gunfire, footsteps and the music kit as speech more or less continuously, and
+Whisper will confidently invent a sentence for every one of them. Silero, a
+small neural detector, scores that kind of audio around **0.001** and real
+speech near **1.0**. It runs on the CPU in about a millisecond per frame while
+the NPU handles Whisper.
+
+On top of that, captions must be a phrase of at least `vad.min_utterance_s`
+(3 seconds by default), must not repeat a line shown in the last 20 captions
+(which is what music kits do every round), and — with `only_foreign` on — must
+not already be English.
 
 ### Captions that don't cost you frames
 
@@ -137,10 +152,15 @@ itself when you move the overlay.
 | `stt.device` | `"auto"` | NPU if the machine has one, else CPU. Force it with `"NPU"`, `"CPU"`, `"GPU"`, or an exact name like `"GPU.1"`. |
 | `stt.model` | `"small"` | `tiny`, `base`, `small`, `medium`, `large-v3-turbo`. Bigger is more accurate and slower. |
 | `stt.beam_size` | `1` | Raise to 5 for accuracy at the cost of speed. |
-| `translation.only_foreign` | `false` | Show *only* foreign speech and hide English. Off by default — see the troubleshooting note below. |
+| `translation.only_foreign` | `true` | Show only foreign speech and hide English — you can already understand your English teammates. |
 | `translation.show_original` | `false` | Also show the untranslated text in grey. |
 | `vad.aggressiveness` | `2` | 0–3. Higher ignores more background noise but may clip quiet speech. |
-| `vad.min_speech_ratio` | `0.25` | How much of a clip must actually be speech. Raise it if gunfire is producing invented captions. |
+| `vad.min_utterance_s` | `3.0` | Only translate phrases at least this long. Short blurts are where Whisper hallucinates most — but most CS2 callouts are 1–2 seconds, so this filters out real ones too. Set `0` to caption everything. |
+| `vad.backend` | `"silero"` | Neural voice detection. `"webrtc"` is the old detector and cannot tell the game apart from a person — see below. |
+| `vad.speech_threshold` | `0.5` | Silero confidence needed to call something speech. Raise toward `0.7` if game audio still gets through. |
+| `vad.min_speech_ratio` | `0.25` | How much of a clip must actually be speech. |
+| `vad.repeat_window` | `20` | Suppress a caption identical to one of the last N. Catches music-kit vocals, which sing the same line every round. |
+| `vad.blocklist` | `[]` | Regular expressions to ignore outright, e.g. `["let the bodies hit the floor"]`. |
 | `overlay.enabled` | `false` | Start with the on-game overlay showing. |
 | `transcript.enabled` | `false` | Write every caption to a text file you can read after the match. |
 
@@ -193,9 +213,19 @@ to Fullscreen Windowed.
 `tiny`), or make sure it is running on the NPU — the startup line in the log
 says which device it picked.
 
-**Sounds that aren't speech become captions.** Gunfire and footsteps can slip
-past the voice detector, and Whisper will invent a sentence from anything. Raise
-`vad.min_speech_ratio` (try `0.4`) or `vad.aggressiveness`.
+**Sounds that aren't speech become captions.** Whisper will invent a whole
+sentence out of gunfire if something lets it through. Raise
+`vad.speech_threshold` toward `0.7`. If the log says the VAD backend is
+`webrtc` rather than `silero`, that is the actual problem — see below.
+
+**Music kit vocals appear as captions.** They should be caught automatically,
+since `vad.repeat_window` suppresses anything already shown recently and a kit
+sings the same line every round. If a specific line keeps getting through, add
+it to `vad.blocklist`.
+
+**Short callouts never appear.** `vad.min_utterance_s` defaults to `3.0`, and a
+lot of real CS2 comms ("one A", "he's low") are shorter than that. Lower it to
+`1.5`, or `0` to caption everything.
 
 **First launch takes minutes.** It is downloading the model and compiling it
 for your NPU. Both are one-time; the compiled result is cached and later
