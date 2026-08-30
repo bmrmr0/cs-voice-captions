@@ -45,8 +45,26 @@ def _start_file_log():
     class _Tee:
         def __init__(self, stream, sink):
             self._stream, self._sink = stream, sink
+            self._at_line_start = True
+
+        def _stamp(self, data):
+            """Prefix each line with the wall-clock time.
+
+            Without this the log says what happened but not when, and the
+            useful thing about a capture log is how events cluster: whether
+            six discarded fragments were six separate noises or one sentence
+            chopped into pieces.
+            """
+            out = []
+            for line in data.splitlines(keepends=True):
+                if self._at_line_start:
+                    out.append(time.strftime("%H:%M:%S "))
+                out.append(line)
+                self._at_line_start = line.endswith("\n")
+            return "".join(out)
 
         def write(self, data):
+            data = self._stamp(data)
             if self._stream is not None:
                 try:
                     self._stream.write(data)

@@ -17,8 +17,10 @@ worker.
 """
 import os
 import queue
+import re
 import threading
 import time
+import wave
 
 import numpy as np
 
@@ -166,6 +168,38 @@ def _secs(frames):
     return frames * FRAME_MS / 1000.0
 
 
+class _ClipDump:
+    """Writes captured clips to disk so a session can be taken apart offline.
+
+    Off unless `vad.save_clips` is set. Turning it on is the way to find out
+    what the gates are actually throwing away -- the discarded clips can be
+    listened to, or fed back through the transcriber, instead of guessed at.
+    """
+
+    def __init__(self, directory, limit=400):
+        os.makedirs(directory, exist_ok=True)
+        self.dir = directory
+        self.limit = limit
+        self.n = 0
+
+    def save(self, mono, kind, reason=""):
+        if self.n >= self.limit:
+            return
+        self.n += 1
+        tag = re.sub(r"[^a-z0-9]+", "-", reason.lower()).strip("-")[:44]
+        name = f"{self.n:04d}-{_secs(len(mono) // FRAME_SAMPLES):.1f}s-{kind}"
+        name += f"-{tag}.wav" if tag else ".wav"
+        try:
+            with wave.open(os.path.join(self.dir, name), "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(SAMPLE_RATE)
+                w.writeframes((np.clip(mono, -1.0, 1.0) * 32767)
+                              .astype(np.int16).tobytes())
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class _Segmenter:
     """Frames -> complete utterances via 'speech then N silent frames'."""
 
@@ -232,21 +266,24 @@ class _Segmenter:
             if speech < self.min_speech_frames:
                 return self._drop(
                     f"only {_secs(speech):.1f}s of speech in it "
-                    f"(vad.min_speech_ms wants {_secs(self.min_speech_frames):.1f}s)")
+                    f"(vad.min_speech_ms wants {_secs(self.min_speech_frames):.1f}s)",
+                    voiced)
             if speech / total < self.min_speech_ratio:
                 return self._drop(
                     f"only {speech / total:.0%} of the clip was speech "
-                    f"(vad.min_speech_ratio wants {self.min_speech_ratio:.0%})")
+                    f"(vad.min_speech_ratio wants {self.min_speech_ratio:.0%})",
+                    voiced)
             if phrase < self.min_phrase_frames:
                 return self._drop(
                     f"phrase ran {_secs(phrase):.1f}s "
-                    f"(vad.min_utterance_s wants {_secs(self.min_phrase_frames):.1f}s)")
+                    f"(vad.min_utterance_s wants {_secs(self.min_phrase_frames):.1f}s)",
+                    voiced)
             return np.concatenate(voiced).astype(np.float32)
         return None
 
-    def _drop(self, reason):
+    def _drop(self, reason, voiced=None):
         if self.on_drop is not None:
-            self.on_drop(reason)
+            self.on_drop(reason, voiced)
         return None
 
 
@@ -370,6 +407,12 @@ class _BaseSource(threading.Thread):
         """Subclasses yield FRAME_SAMPLES-length float32 mono 16 kHz frames."""
         raise NotImplementedError
 
+    def _on_drop(self, why, voiced):
+        self._log(f"clip dropped: {why}")
+        dump = getattr(self, "_dump", None)
+        if dump is not None and voiced:
+            dump.save(np.concatenate(voiced), "dropped", why.split(" (")[0])
+
     def run(self):
         vad = _VAD(self.vad_cfg.get("aggressiveness", 2),
                    backend=self.vad_cfg.get("backend", "silero"),
@@ -382,7 +425,17 @@ class _BaseSource(threading.Thread):
                          self.vad_cfg.get("preroll_ms", 300),
                          self.vad_cfg.get("min_speech_ratio", 0.25),
                          self.vad_cfg.get("min_utterance_s", 3.0),
-                         on_drop=lambda why: self._log(f"clip dropped: {why}"))
+                         on_drop=lambda why, clip: self._on_drop(why, clip))
+
+        dump = None
+        if self.vad_cfg.get("save_clips", False):
+            try:
+                import config as config_mod
+                dump = _ClipDump(os.path.join(config_mod.data_dir(), "clips"))
+                self._log(f"saving clips to {dump.dir}")
+            except Exception as e:  # noqa: BLE001
+                self._log(f"could not open the clip folder: {e}")
+        self._dump = dump
 
         # A minute with nothing captioned is ambiguous: silence in the game,
         # a detector that is too strict, or audio that never arrived at all.
@@ -415,6 +468,8 @@ class _BaseSource(threading.Thread):
             if utt is not None:
                 emitted += 1
                 self._log(f"heard {len(utt) / SAMPLE_RATE:.1f}s of speech")
+                if dump is not None:
+                    dump.save(utt, "kept")
                 try:
                     self.out.put_nowait((self.source_key, utt))
                 except queue.Full:

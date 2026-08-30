@@ -312,8 +312,10 @@ class Transcriber:
             # earlier build ran this filter over webrtcvad's false positives
             # and threw away 95% of its captions.
             if self.only_foreign and self._is_target_lang(lang):
-                print(f"[stt] skipped English: {text[:60]}")
+                print(f"[stt] skipped, detected {lang or '?'} "
+                      f"(translation.only_foreign): {text[:60]}")
                 return None
+            print(f"[stt] detected {lang or '?'}: {text[:60]}")
             text = self._clean(text, dedupe=True)
             if not text:
                 return None

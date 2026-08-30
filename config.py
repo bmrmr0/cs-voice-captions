@@ -103,6 +103,10 @@ DEFAULTS = {
         # or any recurring junk you see, e.g. ["let the bodies hit the floor"].
         "blocklist": [],
         "preroll_ms": 300,            # audio kept from just before speech starts
+        # Write every captured clip to <app dir>/clips as a .wav, named with
+        # the rule that discarded it. For working out what the gates are
+        # actually throwing away; off by default, and capped at 400 files.
+        "save_clips": False,
     },
 
     # Speaker identification for the teammate stream (distinct voices ->
