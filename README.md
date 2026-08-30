@@ -28,9 +28,18 @@ The app is fed *all* of CS2's audio, so the hard part is not transcription — i
 is deciding what counts as someone talking. A conventional voice detector marks
 gunfire, footsteps and the music kit as speech more or less continuously, and
 Whisper will confidently invent a sentence for every one of them. Silero, a
-small neural detector, scores that kind of audio around **0.001** and real
-speech near **1.0**. It runs on the CPU in about a millisecond per frame while
-the NPU handles Whisper.
+small neural detector, separates the two cleanly — measured on this pipeline:
+
+| Input | Peak score | Frames called speech |
+| --- | --- | --- |
+| Speech | **1.000** | 79% |
+| Gunfire-like bursts | 0.062 | 0% |
+| White noise, loud | 0.035 | 0% |
+| Pure tone | 0.002 | 0% |
+| Silence | 0.009 | 0% |
+
+It runs on the CPU in about a millisecond per frame while the NPU handles
+Whisper.
 
 On top of that, captions must be a phrase of at least `vad.min_utterance_s`
 (3 seconds by default), must not repeat a line shown in the last 20 captions
@@ -225,7 +234,28 @@ it to `vad.blocklist`.
 
 **Short callouts never appear.** `vad.min_utterance_s` defaults to `3.0`, and a
 lot of real CS2 comms ("one A", "he's low") are shorter than that. Lower it to
-`1.5`, or `0` to caption everything.
+`1.5`, or `0` to caption everything. This is not hypothetical: a single spoken
+sentence with a pause in the middle splits into two phrases, and the shorter
+half gets dropped. The log says exactly which rule discarded it.
+
+**Working out why a clip was discarded.** Every gate now explains itself, so
+the log names the rule and the number it wanted:
+
+```
+[audio:teammates] clip dropped: phrase ran 2.5s (vad.min_utterance_s wants 3.0s)
+[audio:teammates] clip dropped: only 18% of the clip was speech (vad.min_speech_ratio wants 25%)
+```
+
+If a whole minute passes with nothing captioned, it reports what it did hear,
+which separates "the game was quiet" from "the detector is too strict" from
+"no audio ever arrived":
+
+```
+[audio:teammates] nothing captioned in the last minute — loudest level 0.412, best speech score 0.06 (needs 0.5)
+```
+
+A high level with a low speech score means real sound is arriving but nothing
+in it looks like a person talking.
 
 **First launch takes minutes.** It is downloading the model and compiling it
 for your NPU. Both are one-time; the compiled result is cached and later

@@ -59,6 +59,10 @@ class _SileroVAD:
     """
 
     CHUNK = 512          # samples at 16 kHz -- what Silero v5 expects
+    # v5 also wants the 64 samples immediately preceding each chunk fed in
+    # front of it. This is not optional: without the context the model scores
+    # even loud, clean speech at ~0.06 and the gate rejects everything.
+    CONTEXT = 64
 
     def __init__(self, threshold=0.5):
         import openvino as ov
@@ -71,13 +75,20 @@ class _SileroVAD:
         self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._buf = np.zeros(0, dtype=np.float32)
+        self._context = np.zeros(self.CONTEXT, dtype=np.float32)
         self._prob = 0.0
         self.threshold = float(threshold)
 
     def reset(self):
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._buf = np.zeros(0, dtype=np.float32)
+        self._context = np.zeros(self.CONTEXT, dtype=np.float32)
         self._prob = 0.0
+
+    @property
+    def prob(self):
+        """The most recent speech score, 0..1."""
+        return self._prob
 
     def is_speech(self, frame_f32):
         # Frames are 480 samples and Silero wants 512, so buffer across them
@@ -85,8 +96,9 @@ class _SileroVAD:
         self._buf = np.concatenate([self._buf, frame_f32])
         while len(self._buf) >= self.CHUNK:
             chunk, self._buf = self._buf[:self.CHUNK], self._buf[self.CHUNK:]
+            window = np.concatenate([self._context, chunk])
             try:
-                out = self._req.infer({"input": chunk.reshape(1, -1),
+                out = self._req.infer({"input": window.reshape(1, -1),
                                        "sr": self._sr,
                                        "state": self._state})
                 named = {k.get_any_name(): v for k, v in out.items()}
@@ -94,6 +106,7 @@ class _SileroVAD:
                 self._state = np.array(named["stateN"], dtype=np.float32)
             except Exception:  # noqa: BLE001
                 self._prob = 0.0
+            self._context = chunk[-self.CONTEXT:]
         return self._prob >= self.threshold
 
 
@@ -106,6 +119,9 @@ class _VAD:
         self._energy_threshold = energy_threshold
         self._silero = None
         self._vad = None
+        # Last speech score, kept so the capture loop can say what it is
+        # hearing when nothing makes it through the gates.
+        self.last_prob = 0.0
 
         if backend == "silero":
             try:
@@ -129,23 +145,38 @@ class _VAD:
 
     def is_speech(self, frame_f32):
         if self.backend == "silero":
-            return self._silero.is_speech(frame_f32)
+            speech = self._silero.is_speech(frame_f32)
+            self.last_prob = self._silero.prob
+            return speech
         if self.backend == "webrtc":
             pcm = (np.clip(frame_f32, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
             try:
-                return self._vad.is_speech(pcm, SAMPLE_RATE)
+                speech = self._vad.is_speech(pcm, SAMPLE_RATE)
             except Exception:  # noqa: BLE001
-                return False
+                speech = False
+            self.last_prob = 1.0 if speech else 0.0
+            return speech
         rms = float(np.sqrt(np.mean(np.square(frame_f32)) + 1e-12))
-        return rms > self._energy_threshold
+        speech = rms > self._energy_threshold
+        self.last_prob = 1.0 if speech else 0.0
+        return speech
+
+
+def _secs(frames):
+    return frames * FRAME_MS / 1000.0
 
 
 class _Segmenter:
     """Frames -> complete utterances via 'speech then N silent frames'."""
 
     def __init__(self, vad, silence_ms, max_utterance_s, min_speech_ms=200,
-                 preroll_ms=300, min_speech_ratio=0.25, min_utterance_s=0.0):
+                 preroll_ms=300, min_speech_ratio=0.25, min_utterance_s=0.0,
+                 on_drop=None):
         self.vad = vad
+        # Called with a human-readable reason each time a clip is thrown away.
+        # Silent discards are how this app previously lost 95% of its captions
+        # without saying a word, so every gate now explains itself.
+        self.on_drop = on_drop
         self.silence_frames = max(1, silence_ms // FRAME_MS)
         self.max_frames = max(1, int(max_utterance_s * 1000) // FRAME_MS)
         self.min_speech_frames = max(1, min_speech_ms // FRAME_MS)
@@ -199,12 +230,23 @@ class _Segmenter:
             # mostly speech rather than a word adrift in a long noisy clip,
             # and long enough to be a phrase worth translating.
             if speech < self.min_speech_frames:
-                return None
+                return self._drop(
+                    f"only {_secs(speech):.1f}s of speech in it "
+                    f"(vad.min_speech_ms wants {_secs(self.min_speech_frames):.1f}s)")
             if speech / total < self.min_speech_ratio:
-                return None
+                return self._drop(
+                    f"only {speech / total:.0%} of the clip was speech "
+                    f"(vad.min_speech_ratio wants {self.min_speech_ratio:.0%})")
             if phrase < self.min_phrase_frames:
-                return None
+                return self._drop(
+                    f"phrase ran {_secs(phrase):.1f}s "
+                    f"(vad.min_utterance_s wants {_secs(self.min_phrase_frames):.1f}s)")
             return np.concatenate(voiced).astype(np.float32)
+        return None
+
+    def _drop(self, reason):
+        if self.on_drop is not None:
+            self.on_drop(reason)
         return None
 
 
@@ -339,15 +381,39 @@ class _BaseSource(threading.Thread):
                          self.vad_cfg.get("min_speech_ms", 200),
                          self.vad_cfg.get("preroll_ms", 300),
                          self.vad_cfg.get("min_speech_ratio", 0.25),
-                         self.vad_cfg.get("min_utterance_s", 3.0))
+                         self.vad_cfg.get("min_utterance_s", 3.0),
+                         on_drop=lambda why: self._log(f"clip dropped: {why}"))
+
+        # A minute with nothing captioned is ambiguous: silence in the game,
+        # a detector that is too strict, or audio that never arrived at all.
+        # Report the loudest and most speech-like thing heard, but only when
+        # the minute really was empty, so a working session stays quiet.
+        report_every = max(1, 60_000 // FRAME_MS)
+        frames_seen = emitted = 0
+        peak_level = peak_prob = 0.0
+
         for frame in self.frames():
             if self.stop_event.is_set():
                 break
             if self.paused_event.is_set():
                 seg.reset()
                 continue
+
+            frames_seen += 1
+            level = float(np.sqrt(np.mean(np.square(frame)) + 1e-12))
+            peak_level = max(peak_level, level)
             utt = seg.push(frame)
+            peak_prob = max(peak_prob, vad.last_prob)
+            if frames_seen >= report_every:
+                if emitted == 0:
+                    self._log(f"nothing captioned in the last minute — loudest "
+                              f"level {peak_level:.3f}, best speech score "
+                              f"{peak_prob:.2f} (needs "
+                              f"{self.vad_cfg.get('speech_threshold', 0.5)})")
+                frames_seen = emitted = 0
+                peak_level = peak_prob = 0.0
             if utt is not None:
+                emitted += 1
                 self._log(f"heard {len(utt) / SAMPLE_RATE:.1f}s of speech")
                 try:
                     self.out.put_nowait((self.source_key, utt))
