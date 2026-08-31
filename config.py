@@ -79,7 +79,12 @@ DEFAULTS = {
         "backend": "silero",          # "silero" | "webrtc" | "energy"
         "speech_threshold": 0.5,      # silero: 0..1, higher = stricter
         "aggressiveness": 2,          # 0..3 (webrtcvad only); higher = stricter
-        "silence_ms": 500,            # trailing silence that ends an utterance (per phrase)
+        # Trailing silence that ends an utterance. 500 was short enough that an
+        # ordinary pause between words ended the phrase, chopping one sentence
+        # into 1-second fragments: too short to clear min_utterance_s, and too
+        # short for Whisper to identify the language, which is where the fake
+        # Swedish and Portuguese came from.
+        "silence_ms": 900,
         # Force-flush long speech into separate captions. The old value of 6
         # was cutting 19% of real utterances mid-sentence, which also hurts
         # language detection -- Whisper does better on a complete phrase.

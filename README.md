@@ -167,7 +167,9 @@ itself when you move the overlay.
 | `vad.min_utterance_s` | `3.0` | Only translate phrases at least this long. Short blurts are where Whisper hallucinates most — but most CS2 callouts are 1–2 seconds, so this filters out real ones too. Set `0` to caption everything. |
 | `vad.backend` | `"silero"` | Neural voice detection. `"webrtc"` is the old detector and cannot tell the game apart from a person — see below. |
 | `vad.speech_threshold` | `0.5` | Silero confidence needed to call something speech. Raise toward `0.7` if game audio still gets through. |
-| `vad.min_speech_ratio` | `0.25` | How much of a clip must actually be speech. |
+| `vad.silence_ms` | `900` | Silence that ends a phrase. Too low and one sentence splits into fragments that are too short to caption *and* too short for Whisper to identify the language. |
+| `vad.min_speech_ratio` | `0.25` | How much of the phrase must actually be speech. |
+| `vad.save_clips` | `false` | Write every clip to `clips/` as a .wav named after the rule that discarded it, for working out what a gate is eating. Capped at 400 files. |
 | `vad.repeat_window` | `20` | Suppress a caption identical to one of the last N. Catches music-kit vocals, which sing the same line every round. |
 | `vad.blocklist` | `[]` | Regular expressions to ignore outright, e.g. `["let the bodies hit the floor"]`. |
 | `overlay.enabled` | `false` | Start with the on-game overlay showing. |
@@ -234,9 +236,23 @@ it to `vad.blocklist`.
 
 **Short callouts never appear.** `vad.min_utterance_s` defaults to `3.0`, and a
 lot of real CS2 comms ("one A", "he's low") are shorter than that. Lower it to
-`1.5`, or `0` to caption everything. This is not hypothetical: a single spoken
-sentence with a pause in the middle splits into two phrases, and the shorter
-half gets dropped. The log says exactly which rule discarded it.
+`1.5`, or `0` to caption everything. The log says exactly which rule discarded
+each clip.
+
+Before lowering it, check `vad.silence_ms` — if phrases are being cut into
+1-second pieces, the pieces are short because the sentence was split, not
+because the speaker was brief, and merging them back is the better fix. On one
+8.4-second sentence, `silence_ms: 500` produced a 2.5s fragment that was
+discarded plus a 5.0s clip that survived; at `900` it produced a single 8.0s
+clip and discarded nothing.
+
+**Captions in the wrong language, or nonsense foreign text.** Whisper needs a
+couple of seconds before it can tell what language it is hearing. Under about
+two seconds it guesses, and guesses confidently — a clip of English "one RM"
+came back as Swedish, and genuine Russian (`Я не знаю, как это будет` — "I
+don't know how it will be") was translated as "I'll go to the bathroom". The
+fix is longer clips, not a stricter filter: raise `vad.silence_ms` so phrases
+arrive whole.
 
 **Working out why a clip was discarded.** Every gate now explains itself, so
 the log names the rule and the number it wanted:

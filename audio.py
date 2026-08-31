@@ -217,6 +217,9 @@ class _Segmenter:
         self.preroll = max(0, preroll_ms // FRAME_MS)
         self.min_speech_ratio = float(min_speech_ratio)
         self.min_phrase_frames = max(0, int(float(min_utterance_s) * 1000) // FRAME_MS)
+        # Silence kept after the last spoken frame, so a clip doesn't end on an
+        # abrupt cut. The rest of the trailing silence is discarded.
+        self.tail = max(1, 200 // FRAME_MS)
         self.reset()
 
     def reset(self):
@@ -253,11 +256,20 @@ class _Segmenter:
             self.trailing += 1
         if self.trailing >= self.silence_frames or len(self.voiced) >= self.max_frames:
             voiced = self.voiced
-            speech, total = self.speech_count, max(1, len(voiced))
+            speech = self.speech_count
             # How long the phrase itself ran: first voiced frame to last,
             # ignoring the preroll in front and the silence that ended it.
             # Pauses between words count, because they are part of the phrase.
             phrase = max(0, self.last_voiced - self.speech_start + 1)
+            # Hand on the preroll, the phrase, and a short tail -- but not the
+            # long silence that ended it. That silence is not part of what was
+            # said, and Whisper hallucinates a sentence when fed it.
+            clip = voiced[:min(len(voiced), self.last_voiced + 1 + self.tail)]
+            # Measure the ratio against the phrase, not the whole buffer, so it
+            # means "how much of this was voiced" rather than "how long a
+            # silence ended it" -- otherwise raising silence_ms would quietly
+            # tighten this gate as a side effect.
+            ratio = speech / max(1, phrase)
             self.reset()
             # Whisper will confidently invent a sentence out of gunfire, so a
             # clip has to clear three gates: enough speech in absolute terms,
@@ -267,18 +279,18 @@ class _Segmenter:
                 return self._drop(
                     f"only {_secs(speech):.1f}s of speech in it "
                     f"(vad.min_speech_ms wants {_secs(self.min_speech_frames):.1f}s)",
-                    voiced)
-            if speech / total < self.min_speech_ratio:
+                    clip)
+            if ratio < self.min_speech_ratio:
                 return self._drop(
-                    f"only {speech / total:.0%} of the clip was speech "
+                    f"only {ratio:.0%} of the phrase was speech "
                     f"(vad.min_speech_ratio wants {self.min_speech_ratio:.0%})",
-                    voiced)
+                    clip)
             if phrase < self.min_phrase_frames:
                 return self._drop(
                     f"phrase ran {_secs(phrase):.1f}s "
                     f"(vad.min_utterance_s wants {_secs(self.min_phrase_frames):.1f}s)",
-                    voiced)
-            return np.concatenate(voiced).astype(np.float32)
+                    clip)
+            return np.concatenate(clip).astype(np.float32)
         return None
 
     def _drop(self, reason, voiced=None):
