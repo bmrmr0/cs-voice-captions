@@ -525,6 +525,18 @@ class ProcessSource(_BaseSource):
                 return p.info["pid"]
         return None
 
+    def _alive(self, pid):
+        """True while `pid` is still the process we meant to tap. Checks the
+        name as well, in case Windows has already handed the pid to something
+        else."""
+        import psutil
+        try:
+            p = psutil.Process(pid)
+            return (p.is_running()
+                    and (p.name() or "").lower() == self.process_name.lower())
+        except Exception:  # noqa: BLE001
+            return False
+
     def _fallback(self, reason):
         """Yield desktop-loopback frames so a broken proc-tap degrades to
         'captures too much' rather than 'captures nothing'."""
@@ -571,11 +583,24 @@ class ProcessSource(_BaseSource):
                 failures = 0
                 self._log(f"capturing {self.process_name} (pid {pid}) at "
                           f"{src_rate} Hz / {channels}ch, game audio only")
+                last_check = time.monotonic()
                 while not self.stop_event.is_set():
                     data = cap.read(timeout=1.0)
+                    # proc-tap never reports that its target has gone. After
+                    # cs2.exe exits it keeps delivering silent chunks at full
+                    # rate, indefinitely, so "no data" never happens. Check
+                    # this exact pid ourselves -- "is some cs2.exe running" is
+                    # not enough, because after a restart one is, just not the
+                    # one we are tapping. Without this a CS2 restart left the
+                    # app permanently deaf.
+                    now = time.monotonic()
+                    if now - last_check >= 2.0:
+                        last_check = now
+                        if not self._alive(pid):
+                            self._log(f"{self.process_name} (pid {pid}) exited; "
+                                      "waiting for it to start again", to_ui=True)
+                            break
                     if not data:
-                        if self._find_pid() is None:
-                            break          # CS2 closed -> re-wait for it
                         continue
                     arr = np.frombuffer(data, dtype=np.float32)
                     if arr.size == 0:

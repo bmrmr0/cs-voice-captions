@@ -233,15 +233,47 @@ def load():
     return cfg
 
 
+_MISSING = object()
+
+
+def _overrides(cfg, base, existing):
+    """The part of `cfg` worth writing to disk: anything that differs from the
+    defaults, plus every key the user's file already set (so a value someone
+    chose on purpose survives even when it happens to equal the default)."""
+    out = {}
+    for k, v in cfg.items():
+        b = base.get(k, _MISSING) if isinstance(base, dict) else _MISSING
+        e = existing.get(k, _MISSING) if isinstance(existing, dict) else _MISSING
+        if isinstance(v, dict) and isinstance(b, dict):
+            sub = _overrides(v, b, e if isinstance(e, dict) else {})
+            if sub:
+                out[k] = sub
+        elif e is not _MISSING or b is _MISSING or v != b:
+            out[k] = v
+    return out
+
+
 def save(cfg):
-    """Persist the running config, atomically so a crash mid-write can't leave
-    a truncated config.json behind. Returns True on success."""
+    """Persist the user's settings, atomically so a crash mid-write can't leave
+    a truncated config.json behind. Returns True on success.
+
+    Only overrides are written, never the whole running config. Dumping all of
+    it meant that moving the overlay once pinned every default of that build
+    into the file for good -- so a later release that fixed a default (the
+    voice detector, silence_ms) would never reach anyone who had."""
     path = config_path()
+    existing = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+    except Exception:  # noqa: BLE001
+        pass
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            json.dump(_overrides(cfg, DEFAULTS, existing), f, indent=2,
+                      ensure_ascii=False)
         os.replace(tmp, path)
         return True
     except Exception as e:  # noqa: BLE001

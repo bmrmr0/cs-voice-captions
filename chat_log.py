@@ -84,8 +84,13 @@ _BIDI_MARKS = dict.fromkeys(map(ord, "‎‏‪‫‬"), None)
 # has con_timestamp on). Anchoring matters: without it, a chat *message* that
 # merely contains "[ALL] " would itself be parsed as a chat line, letting any
 # player forge a line attributed to someone else.
+#
+# Two timestamp shapes are accepted. CS2 writes "10/04 22:08:48  [ALL] ..."
+# (no year, no dash, no trailing colon); CS:GO wrote
+# "10/04/2024 - 22:08:48: [ALL] ...". Only accepting the CS:GO one meant every
+# CS2 chat line failed to match and text chat silently never appeared.
 _CHAT_RE = re.compile(
-    r"^\s*(?:\d{2}/\d{2}/\d{4}\s*-\s*\d{2}:\d{2}:\d{2}:\s*)?"
+    r"^\s*(?:\d{2}/\d{2}(?:/\d{4})?\s*-?\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?:?\s*)?"
     r"\[(ALL|TEAM)\]\s+(.*)$")
 
 
@@ -128,29 +133,40 @@ class ChatLogReader(threading.Thread):
             return
         print(f"[chat] tailing {self.path}")
         try:
-            f = open(self.path, "r", encoding="utf-8", errors="replace")
+            # Binary, so the position is a real byte offset we can compare
+            # against the file size, and so a line CS2 is still halfway
+            # through writing can be held back until its newline arrives
+            # instead of being parsed as a truncated message.
+            f = open(self.path, "rb")
         except Exception as e:  # noqa: BLE001
             print(f"[chat] cannot open console.log: {e}")
             return
 
         with f:
             f.seek(0, os.SEEK_END)
-            last_size = self._size()
+            pos = f.tell()
+            pending = b""
             while not self.stop_event.is_set():
-                line = f.readline()
-                if not line:
-                    size = self._size()
-                    if size < last_size:        # log cleared (new match) -> restart
+                chunk = f.read(65536)
+                if not chunk:
+                    if self._size() < pos:
+                        # CS2 truncates console.log every launch. Start over
+                        # from the top of the new file.
                         f.seek(0)
-                    last_size = size
+                        pos, pending = 0, b""
                     time.sleep(0.2)
                     continue
-                ev = parse_chat_line(line, self.scopes)
-                if ev:
-                    try:
-                        self.out.put_nowait(ev)
-                    except queue.Full:
-                        pass
+                pos += len(chunk)
+                pending += chunk
+                *lines, pending = pending.split(b"\n")
+                for raw in lines:
+                    ev = parse_chat_line(raw.decode("utf-8", errors="replace"),
+                                         self.scopes)
+                    if ev:
+                        try:
+                            self.out.put_nowait(ev)
+                        except queue.Full:
+                            pass
 
     def _size(self):
         try:
