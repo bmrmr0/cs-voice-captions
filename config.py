@@ -34,6 +34,7 @@ DEFAULTS = {
     # Safe: the game writes this log itself; we only tail the file.
     "chat": {
         "enabled": True,
+        "show": True,                  # show chat lines (toggle in the tray / settings)
         "console_log_path": "",        # blank = auto-detect via Steam
         "scopes": ["ALL", "TEAM"],     # which chat channels to show
         "translate": True,             # translate foreign chat

@@ -419,6 +419,18 @@ class _BaseSource(threading.Thread):
         """Subclasses yield FRAME_SAMPLES-length float32 mono 16 kHz frames."""
         raise NotImplementedError
 
+    def _apply_live_settings(self, vad, seg):
+        """Pick up the two detector settings the settings window can change
+        while capture is running. The rest are fixed at startup."""
+        c = self.vad_cfg
+        try:
+            seg.min_phrase_frames = max(
+                0, int(float(c.get("min_utterance_s", 0.5)) * 1000) // FRAME_MS)
+            if vad._silero is not None:
+                vad._silero.threshold = float(c.get("speech_threshold", 0.5))
+        except (TypeError, ValueError):
+            pass
+
     def _on_drop(self, why, voiced):
         self._log(f"clip dropped: {why}")
         dump = getattr(self, "_dump", None)
@@ -465,6 +477,8 @@ class _BaseSource(threading.Thread):
                 continue
 
             frames_seen += 1
+            if frames_seen % 33 == 0:          # about once a second
+                self._apply_live_settings(vad, seg)
             level = float(np.sqrt(np.mean(np.square(frame)) + 1e-12))
             peak_level = max(peak_level, level)
             utt = seg.push(frame)

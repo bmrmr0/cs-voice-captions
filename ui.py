@@ -11,7 +11,8 @@ from html import escape as html_escape
 from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction, QGuiApplication
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QTextEdit, QSystemTrayIcon, QMenu,
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QTextEdit, QSystemTrayIcon,
+    QMenu, QPushButton,
 )
 
 
@@ -159,6 +160,24 @@ class Overlay(QWidget):
                 f"{tag}{text}{orig}{note}")
 
     # -- public API --------------------------------------------------------
+    def apply_settings(self):
+        """Re-read size, line count and duration from the config, restyling
+        the lines already on screen."""
+        o = self.ocfg
+        self._fs = int(o.get("font_size", self._fs))
+        self._max = max(1, int(o.get("max_lines", self._max)))
+        self._ttl = float(o.get("line_ttl_s", self._ttl))
+        self._w = int(o.get("width", self._w))
+        self.setFixedWidth(self._w)
+        for lbl, _ in self._items:
+            lbl.setFixedWidth(self._w)
+            lbl.setStyleSheet(self._label_style())
+        while len(self._items) > self._max:
+            old, _ = self._items.pop(0)
+            self._drop(old)
+        self._clamp_to_screen()
+        self._reflow()
+
     def add_caption(self, r):
         self._add(self._format(r), self._ttl)
 
@@ -235,11 +254,12 @@ class Overlay(QWidget):
 
 
 class History(QWidget):
-    def __init__(self, hcfg=None):
+    def __init__(self, hcfg=None, on_settings=None):
         super().__init__()
         hcfg = hcfg or {}
         self.setWindowTitle("CS Voice Captions")
         self.resize(580, 640)
+        self.setStyleSheet("History { background:#121417; }")
         self.view = QTextEdit()
         self.view.setReadOnly(True)
         # Cap the document: a long session would otherwise grow this window's
@@ -251,6 +271,22 @@ class History(QWidget):
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        if on_settings is not None:
+            # The tray icon is easy to lose in the overflow area, so settings
+            # are reachable from the window everyone actually has open.
+            bar = QHBoxLayout()
+            bar.setContentsMargins(8, 6, 8, 6)
+            bar.addStretch(1)
+            btn = QPushButton("Settings")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                "QPushButton { background:#23272e; color:#e8e8e8; border:1px solid #353b45;"
+                " border-radius:6px; padding:4px 12px; font-size:13px; }"
+                "QPushButton:hover { background:#2d333c; }")
+            btn.clicked.connect(on_settings)
+            bar.addWidget(btn)
+            layout.addLayout(bar)
         layout.addWidget(self.view)
 
     def add_status(self, text):
@@ -285,7 +321,8 @@ class TrayController:
     """
 
     def __init__(self, app, overlay, history, paused_event, stop_event,
-                 overlay_enabled=False, on_overlay_toggle=None, on_quit=None):
+                 overlay_enabled=False, on_overlay_toggle=None, on_quit=None,
+                 chat_cfg=None, on_chat_toggle=None, on_settings=None):
         self.app = app
         self.overlay = overlay
         self.history = history
@@ -294,6 +331,8 @@ class TrayController:
         self.overlay_visible = overlay_enabled
         self._on_overlay_toggle = on_overlay_toggle
         self._on_quit = on_quit
+        self._chat_cfg = chat_cfg if chat_cfg is not None else {}
+        self._on_chat_toggle = on_chat_toggle
 
         self.tray = QSystemTrayIcon(make_icon("#7CFC7C"))
         self.tray.setToolTip("CS Voice Captions")
@@ -311,13 +350,27 @@ class TrayController:
         self.act_hist = QAction("Show captions window", self.menu)
         self.act_hist.triggered.connect(self.show_window)
 
+        self.act_chat = QAction("Show text chat", self.menu)
+        self.act_chat.setCheckable(True)
+        self.act_chat.triggered.connect(self.toggle_chat)
+
+        act_settings = QAction("Settings…", self.menu)
+        if on_settings is not None:
+            act_settings.triggered.connect(on_settings)
+
         act_quit = QAction("Quit", self.menu)
         act_quit.triggered.connect(self.quit)
 
         for a in (self.act_pause, self.act_overlay, self.act_lock, self.act_hist):
             self.menu.addAction(a)
         self.menu.addSeparator()
+        self.menu.addAction(self.act_chat)
+        self.menu.addAction(act_settings)
+        self.menu.addSeparator()
         self.menu.addAction(act_quit)
+        # The settings window can change the same option, so re-read it each
+        # time the menu opens rather than trusting a cached state.
+        self.menu.aboutToShow.connect(self._sync_labels)
 
         self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._on_activated)
@@ -353,6 +406,12 @@ class TrayController:
         else:
             self._sync_labels()
 
+    def toggle_chat(self):
+        self._chat_cfg["show"] = not self._chat_cfg.get("show", True)
+        self._sync_labels()
+        if self._on_chat_toggle:
+            self._on_chat_toggle(self._chat_cfg["show"])
+
     def show_window(self):
         self.history.show()
         self.history.raise_()
@@ -380,6 +439,7 @@ class TrayController:
         self.act_lock.setText("Lock overlay (click-through)" if not self.overlay.locked
                               else "Unlock overlay to move it")
         self.act_lock.setEnabled(self.overlay_visible or self.overlay.locked)
+        self.act_chat.setChecked(bool(self._chat_cfg.get("show", True)))
 
     def notify(self, title, message):
         try:

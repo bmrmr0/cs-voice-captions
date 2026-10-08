@@ -102,6 +102,7 @@ from audio import SoundcardSource, ProcessSource  # noqa: E402
 from stt import Transcriber                       # noqa: E402
 from transcript import TranscriptWriter           # noqa: E402
 from ui import Bridge, Overlay, History, TrayController  # noqa: E402
+from settings_window import SettingsWindow        # noqa: E402
 from PySide6.QtCore import QTimer                 # noqa: E402
 from PySide6.QtWidgets import QApplication        # noqa: E402
 
@@ -202,18 +203,29 @@ class ChatWorker(threading.Thread):
         tcfg = self.cfg.get("translation", {})
         target = tcfg.get("target_language", "English")
         target_is_en = target.lower() in ("english", "en")
-        translator = make_text_translator(self.cfg)
+        ccfg = self.cfg.setdefault("chat", {})
+        # Built even if translation starts switched off, so the settings
+        # window can turn it on without a restart. Only "off" as the engine
+        # means no translator at all.
+        translator = make_text_translator(
+            {**self.cfg, "chat": {**ccfg, "translate": True}})
 
         while not self.stop_event.is_set():
             try:
                 ev = self.q.get(timeout=0.3)
             except queue.Empty:
                 continue
+            # Read per message so the tray / settings toggles apply at once.
+            # Hidden chat is not translated either: no request is sent for a
+            # line nobody will see.
+            if not ccfg.get("show", True):
+                continue
             text = ev["message"]
             original = None
             translated = False
             # Skip pointless translation of plain-ASCII chat when target is English.
-            if translator and not (target_is_en and text.isascii()):
+            if (translator and ccfg.get("translate", True)
+                    and not (target_is_en and text.isascii())):
                 tr = translator.translate(text)
                 if tr and tr.strip() and tr.strip() != text.strip():
                     original, text, translated = text, tr, True
@@ -252,7 +264,15 @@ def main():
         config_mod.save(cfg)
 
     overlay = Overlay(cfg["overlay"], on_move=save_overlay_pos)
-    history = History(cfg.get("history", {}))
+
+    def on_setting_change(section, key):
+        # Everything else the window changes is read live by its consumer;
+        # only the overlay has widgets that need redrawing.
+        if section == "overlay":
+            overlay.apply_settings()
+
+    settings = SettingsWindow(cfg, on_change=on_setting_change)
+    history = History(cfg.get("history", {}), on_settings=settings.open)
 
     bridge.new_caption.connect(
         lambda r: (overlay.add_caption(r), history.add_caption(r), writer.add_caption(r)))
@@ -272,7 +292,10 @@ def main():
     tray = TrayController(app, overlay, history, paused_event, stop_event,
                           overlay_enabled=overlay_enabled,
                           on_overlay_toggle=save_overlay_enabled,
-                          on_quit=writer.close)
+                          on_quit=writer.close,
+                          chat_cfg=cfg["chat"],
+                          on_chat_toggle=lambda _shown: config_mod.save(cfg),
+                          on_settings=settings.open)
 
     # Hotkey callbacks fire on the hotkey thread; signals hop them to the GUI
     # thread before anything touches a widget.

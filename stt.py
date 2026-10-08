@@ -160,9 +160,6 @@ class Transcriber:
         self.status_cb = status_cb
         self.min_chars = cfg["vad"].get("min_chars", 2)
         self.beam_size = max(1, int(self.scfg.get("beam_size", 1)))
-        self.only_foreign = self.tcfg.get("only_foreign", True)
-        self.languages = {str(c).strip().lower()
-                          for c in self.tcfg.get("languages", []) if str(c).strip()}
         self.blocklist = _compile_blocklist(cfg["vad"].get("blocklist", []))
         self.target_code = _to_lang_code(self.tcfg.get("target_language", "English"))
         self._last_text = ""      # suppress back-to-back identical captions
@@ -311,6 +308,17 @@ class Transcriber:
             self._recent.append(norm)
         return t
 
+    # Read from the config on every clip rather than cached, so the settings
+    # window can change them while the app runs.
+    @property
+    def only_foreign(self):
+        return self.tcfg.get("only_foreign", True)
+
+    @property
+    def languages(self):
+        return {str(c).strip().lower()
+                for c in self.tcfg.get("languages", []) if str(c).strip()}
+
     def _is_target_lang(self, lang):
         return (lang or "").strip().lower() == self.target_code
 
@@ -329,11 +337,15 @@ class Transcriber:
             # This is only safe now that Silero keeps game noise out -- the
             # earlier build ran this filter over webrtcvad's false positives
             # and threw away 95% of its captions.
-            if self.only_foreign and self._is_target_lang(lang):
+            # English is governed only by only_foreign, so "show English" still
+            # works when the language list names just ru/uk.
+            is_target = self._is_target_lang(lang)
+            if is_target and self.only_foreign:
                 print(f"[stt] skipped, detected {lang or '?'} "
                       f"(translation.only_foreign): {text[:60]}")
                 return None
-            if self.languages and (lang or "").lower() not in self.languages:
+            languages = self.languages
+            if not is_target and languages and (lang or "").lower() not in languages:
                 print(f"[stt] skipped, detected {lang or '?'} "
                       f"(translation.languages): {text[:60]}")
                 return None

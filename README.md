@@ -127,7 +127,18 @@ The tray icon is the control panel — green when listening, grey when paused:
   the mouse reaches the game. Unlock it, drag it where you want, lock it
   again. The position is saved for next time.
 - **Show captions window**
+- **Show text chat** — tick to show chat messages, untick to hide them
+  (hidden chat isn't translated either)
+- **Settings…** — also a button in the captions window
 - **Quit**
+
+The settings window covers what is safe to change mid-match: showing chat,
+translating chat, showing English speech, showing the original text, which
+spoken languages are captioned, the shortest phrase to caption, how strict the
+voice detector is, and the overlay's text size, width, line count and
+duration. Every change applies immediately and is saved. Settings that would
+need a restart or a re-download — the speech model, device, capture method,
+hotkeys — stay in `config.json`.
 
 Default global hotkeys, which work while CS2 has focus:
 
