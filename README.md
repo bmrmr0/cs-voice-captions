@@ -42,7 +42,7 @@ It runs on the CPU in about a millisecond per frame while the NPU handles
 Whisper.
 
 On top of that, captions must be a phrase of at least `vad.min_utterance_s`
-(3 seconds by default), must not repeat a line shown in the last 20 captions
+(half a second by default), in one of `translation.languages`, must not repeat a line shown in the last 20 captions
 (which is what music kits do every round), and — with `only_foreign` on — must
 not already be English.
 
@@ -162,9 +162,10 @@ itself when you move the overlay.
 | `stt.model` | `"small"` | `tiny`, `base`, `small`, `medium`, `large-v3-turbo`. Bigger is more accurate and slower. |
 | `stt.beam_size` | `1` | Raise to 5 for accuracy at the cost of speed. |
 | `translation.only_foreign` | `true` | Show only foreign speech and hide English — you can already understand your English teammates. |
+| `translation.languages` | `["ru", "uk"]` | Only caption speech detected as these languages; `[]` means any. On short clips Whisper's language guess is close to random, so this removes most junk captions. |
 | `translation.show_original` | `false` | Also show the untranslated text in grey. |
 | `vad.aggressiveness` | `2` | 0–3. Higher ignores more background noise but may clip quiet speech. |
-| `vad.min_utterance_s` | `3.0` | Only translate phrases at least this long. Short blurts are where Whisper hallucinates most — but most CS2 callouts are 1–2 seconds, so this filters out real ones too. Set `0` to caption everything. |
+| `vad.min_utterance_s` | `0.5` | Shortest phrase worth captioning. Kept short because most callouts are under two seconds; the junk short clips produce is handled by `translation.languages` instead. |
 | `vad.backend` | `"silero"` | Neural voice detection. `"webrtc"` is the old detector and cannot tell the game apart from a person — see below. |
 | `vad.speech_threshold` | `0.5` | Silero confidence needed to call something speech. Raise toward `0.7` if game audio still gets through. |
 | `vad.silence_ms` | `900` | Silence that ends a phrase. Too low and one sentence splits into fragments that are too short to caption *and* too short for Whisper to identify the language. |
@@ -234,10 +235,15 @@ since `vad.repeat_window` suppresses anything already shown recently and a kit
 sings the same line every round. If a specific line keeps getting through, add
 it to `vad.blocklist`.
 
-**Short callouts never appear.** `vad.min_utterance_s` defaults to `3.0`, and a
-lot of real CS2 comms ("one A", "he's low") are shorter than that. Lower it to
-`1.5`, or `0` to caption everything. The log says exactly which rule discarded
-each clip.
+**Short callouts never appear.** Check the log, which says exactly which rule
+discarded each clip. If it is `translation.languages`, the speaker's language
+isn't in the list — add its code, or set `[]` to allow any. If it is
+`vad.min_utterance_s` (0.5s by default), lower it toward `0`.
+
+**Odd one-off captions from Russian speech** ("Police!" for a single word).
+Whisper's translation of a clip under about a second is unreliable even when
+it heard the word correctly — `улица` ("street") came back as "Police!".
+Raising `vad.min_utterance_s` trades these for missing short callouts.
 
 Before lowering it, check `vad.silence_ms` — if phrases are being cut into
 1-second pieces, the pieces are short because the sentence was split, not

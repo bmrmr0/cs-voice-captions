@@ -66,6 +66,13 @@ DEFAULTS = {
         # setting discarded 95% of captions, because Whisper guesses "en" on
         # whatever noise it is handed.
         "only_foreign": True,
+        # Only caption speech Whisper detects as one of these (ISO codes); an
+        # empty list means any language. On short clips Whisper guesses the
+        # language from very little, and the guesses spread across everything
+        # -- of one evening's junk clips, Korean, Chinese, Tamil, Arabic,
+        # German, Portuguese and Turkish, against two tagged Russian -- so
+        # naming the languages you actually need removes most of it.
+        "languages": ["ru", "uk"],
         "translate_sources": ["teammates"],  # don't translate your own mic
         "show_original": False,       # also show the original (foreign) text
     },
@@ -91,10 +98,11 @@ DEFAULTS = {
         "max_utterance_s": 8,
         # Only translate phrases at least this long, measured from the first
         # spoken frame to the last (pauses between words count; the preroll and
-        # the silence that ends the phrase do not). Short blurts are where
-        # Whisper hallucinates most -- but note most CS2 callouts are only 1-2
-        # seconds, so raising this trades real callouts for less noise.
-        "min_utterance_s": 3.0,
+        # the silence that ends the phrase do not). Most CS2 callouts are well
+        # under two seconds, so this is kept short; the junk short clips
+        # produce is filtered by translation.languages and the hallucination
+        # list instead of by length.
+        "min_utterance_s": 0.5,
         "min_speech_ms": 200,         # drop clips with less real speech than this
         # Fraction of the clip that must actually be speech. Without this a
         # single word adrift in six seconds of gunfire reaches Whisper, which

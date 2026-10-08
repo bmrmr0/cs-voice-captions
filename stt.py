@@ -94,7 +94,22 @@ HALLUCINATIONS = {
     "субтитры сделал dimatorzok",
     "субтитры создавал dimatorzok",
     "редактор субтитров а.семкин корректор а.егорова",
+    # The same family after the translate task has turned it into English.
+    # Whisper learned these from subtitle credits and video outros, and
+    # produces them from noise; Russian ones arrive here already translated.
+    "the end", "to be continued", "thank you for your attention",
+    "thanks for your attention", "see you next time", "see you soon",
+    "i'll see you next time", "bye bye", "bye-bye",
 }
+
+# Shapes of the same thing that vary too much to list exactly.
+HALLUCINATION_PATTERNS = [re.compile(p, re.IGNORECASE) for p in (
+    r"\b(subtitles?|captions?|subtitle editor|corrector)\b.*\b(by|made|created|edited)\b",
+    r"\bamara\.org\b",
+    r"\bdimatorzok\b",
+    r"\bthanks? (you )?for (watching|listening)\b",
+    r"\b(like and )?subscribe\b",
+)]
 
 
 def _collapse_runs(items, max_repeats, join):
@@ -146,6 +161,8 @@ class Transcriber:
         self.min_chars = cfg["vad"].get("min_chars", 2)
         self.beam_size = max(1, int(self.scfg.get("beam_size", 1)))
         self.only_foreign = self.tcfg.get("only_foreign", True)
+        self.languages = {str(c).strip().lower()
+                          for c in self.tcfg.get("languages", []) if str(c).strip()}
         self.blocklist = _compile_blocklist(cfg["vad"].get("blocklist", []))
         self.target_code = _to_lang_code(self.tcfg.get("target_language", "English"))
         self._last_text = ""      # suppress back-to-back identical captions
@@ -274,7 +291,8 @@ class Transcriber:
         if len(t) < self.min_chars:
             return ""
         norm = t.lower().strip(" .!?,…\"'")
-        if norm in HALLUCINATIONS:
+        if norm in HALLUCINATIONS or any(p.search(t) for p in HALLUCINATION_PATTERNS):
+            print(f"[stt] dropped stock Whisper phrase: {t[:60]}")
             return ""
         # Music-kit vocals and anything else the user has told us to ignore.
         for pat in self.blocklist:
@@ -314,6 +332,10 @@ class Transcriber:
             if self.only_foreign and self._is_target_lang(lang):
                 print(f"[stt] skipped, detected {lang or '?'} "
                       f"(translation.only_foreign): {text[:60]}")
+                return None
+            if self.languages and (lang or "").lower() not in self.languages:
+                print(f"[stt] skipped, detected {lang or '?'} "
+                      f"(translation.languages): {text[:60]}")
                 return None
             print(f"[stt] detected {lang or '?'}: {text[:60]}")
             text = self._clean(text, dedupe=True)

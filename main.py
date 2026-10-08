@@ -218,6 +218,8 @@ class ChatWorker(threading.Thread):
                 if tr and tr.strip() and tr.strip() != text.strip():
                     original, text, translated = text, tr, True
             scope = ev.get("scope", "")
+            print(f"[chat:{scope}] {ev.get('name', '?')}: {text}"
+                  + (f"   (from: {original})" if original else ""))
             self.bridge.new_caption.emit({
                 "kind": "chat",
                 "scope": scope,
