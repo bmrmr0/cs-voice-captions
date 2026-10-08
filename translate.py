@@ -30,23 +30,32 @@ def _lang_code(name):
 # fallback needs a source language; script is unambiguous for Cyrillic, Greek,
 # Arabic, Hebrew, Thai and CJK, and a few letters exist in only one of the
 # common Latin-script languages. Anything else is left untranslated.
+#
+# Some letters belong to several languages, so those rows name every
+# candidate, most likely first, and the fallback tries them in turn. Turkish
+# chat is often typed without its own letters ("cocugu" for "çocuğu"), leaving
+# only a "ç" that French and Portuguese share -- with a single guess it went
+# off as French and came back untranslated.
 _SCRIPT_HINTS = [
-    ("uk", r"[іїєґ]"),
-    ("ru", r"[а-яё]"),
-    ("pl", r"[ąćęłńśźż]"),
-    ("tr", r"[ğış]"),
-    ("pt", r"[ãõ]"),
-    ("es", r"[ñ¿¡]"),
-    ("de", r"[äöüß]"),
-    ("cs", r"[ěřůčšž]"),
-    ("fr", r"[àâçèêëîïôûœ]"),
-    ("el", r"[α-ω]"),
-    ("ar", r"[؀-ۿ]"),
-    ("he", r"[֐-׿]"),
-    ("th", r"[฀-๿]"),
-    ("ja", r"[぀-ヿ]"),
-    ("ko", r"[가-힯]"),
-    ("zh-CN", r"[一-鿿]"),
+    (("uk",), r"[іїєґ]"),
+    (("ru",), r"[а-яё]"),
+    (("pl",), r"[ąćęłńśźż]"),
+    (("tr",), r"[ğış]"),
+    (("pt",), r"[ãõ]"),
+    (("es",), r"[ñ¿¡]"),
+    (("de",), r"ß"),
+    (("cs",), r"[ěřůčšž]"),
+    (("de", "tr"), r"[äöü]"),
+    (("tr", "fr", "pt"), r"ç"),
+    (("fr",), r"[àâèêëîïôûœ]"),
+    (("es", "pt", "fr"), r"[áéíóú]"),
+    (("el",), r"[α-ω]"),
+    (("ar",), r"[؀-ۿ]"),
+    (("he",), r"[֐-׿]"),
+    (("th",), r"[฀-๿]"),
+    (("ja",), r"[぀-ヿ]"),
+    (("ko",), r"[가-힯]"),
+    (("zh-CN",), r"[一-鿿]"),
 ]
 
 
@@ -60,12 +69,21 @@ _MYMEMORY_CODES = {
 }
 
 
-def _guess_source(text):
+def _guess_sources(text):
+    """Candidate source languages for `text`, most likely first; empty if
+    nothing in it identifies a language."""
     t = (text or "").lower()
-    for code, pattern in _SCRIPT_HINTS:
+    for codes, pattern in _SCRIPT_HINTS:
         if re.search(pattern, t):
-            return code
-    return None
+            return list(codes)
+    return []
+
+
+def _same_text(a, b):
+    """True if a "translation" is really just the input handed back, which is
+    what MyMemory does when told the wrong source language."""
+    norm = lambda s: re.sub(r"[\W_]+", "", (s or "").lower())  # noqa: E731
+    return norm(a) == norm(b)
 
 
 # MyMemory reports most errors by returning them *as the translation*, in
@@ -121,23 +139,26 @@ class _ChainTranslator:
             return None
 
     def _via_mymemory(self, text):
-        source = _guess_source(text)
-        if source is None or source == self.target:
-            return None
-        src = _MYMEMORY_CODES.get(source)
         dst = _MYMEMORY_CODES.get(self.target)
-        if not src or not dst:
+        if not dst:
             return None
-        try:
-            from deep_translator import MyMemoryTranslator
-            out = MyMemoryTranslator(source=src, target=dst).translate(text)
-        except Exception as e:  # noqa: BLE001
-            self._note("mymemory", f"MyMemory translation failed: {e}")
-            return None
-        if not out or _MYMEMORY_ERRORS.search(out):
-            self._note("mymemory", f"MyMemory refused: {(out or '').strip()[:120]}")
-            return None
-        return out
+        from deep_translator import MyMemoryTranslator
+        for source in _guess_sources(text):
+            src = _MYMEMORY_CODES.get(source)
+            if source == self.target or not src:
+                continue
+            try:
+                out = MyMemoryTranslator(source=src, target=dst).translate(text)
+            except Exception as e:  # noqa: BLE001
+                self._note("mymemory", f"MyMemory translation failed: {e}")
+                return None
+            if not out or _MYMEMORY_ERRORS.search(out):
+                self._note("mymemory", f"MyMemory refused: {(out or '').strip()[:120]}")
+                return None
+            if not _same_text(out, text):
+                return out
+            # Handed back unchanged: wrong guess, so try the next candidate.
+        return None
 
     def translate(self, text):
         return self._via_google(text) or self._via_mymemory(text)
