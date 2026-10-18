@@ -251,6 +251,7 @@ class ChatWorker(threading.Thread):
             self.bridge.new_caption.emit({
                 "kind": "chat",
                 "scope": scope,
+                "location": ev.get("location", ""),
                 "label": ev.get("name", "?"),
                 "color": "#7CFC7C" if scope == "TEAM" else "#e8e8e8",
                 "text": text,

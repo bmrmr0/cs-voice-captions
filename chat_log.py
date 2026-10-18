@@ -89,9 +89,19 @@ _BIDI_MARKS = dict.fromkeys(map(ord, "‎‏‪‫‬"), None)
 # (no year, no dash, no trailing colon); CS:GO wrote
 # "10/04/2024 - 22:08:48: [ALL] ...". Only accepting the CS:GO one meant every
 # CS2 chat line failed to match and text chat silently never appeared.
+#
+# Team chat is tagged with the player's side, "[CT]" or "[T]" -- not "[TEAM]",
+# which CS2 never writes. Accepting only ALL/TEAM meant team chat, where most
+# callouts happen, was never picked up at all.
 _CHAT_RE = re.compile(
     r"^\s*(?:\d{2}/\d{2}(?:/\d{4})?\s*-?\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?:?\s*)?"
-    r"\[(ALL|TEAM)\]\s+(.*)$")
+    r"\[(ALL|TEAM|CT|T)\]\s+(.*)$")
+
+_SIDE_TAGS = {"CT": "TEAM", "T": "TEAM"}
+
+# A living player's name carries where they are, after a small at-sign:
+# "$waGG‎﹫CT Start: nice bro".
+_LOCATION_MARK = "﹫"
 
 
 def _clean_name(name):
@@ -105,17 +115,20 @@ def parse_chat_line(line, scopes):
     m = _CHAT_RE.match(line.rstrip())
     if not m:
         return None
-    scope, rest = m.group(1), m.group(2)
+    side, rest = m.group(1), m.group(2)
+    scope = _SIDE_TAGS.get(side, side)
     if scope not in scopes:
         return None
     name, sep, msg = rest.partition(": ")
     if not sep:
         return None
+    name, _, location = name.partition(_LOCATION_MARK)
     name = _clean_name(name)
     msg = msg.strip()
     if not name or not msg:
         return None
-    return {"scope": scope, "name": name, "message": msg}
+    return {"scope": scope, "side": side if side in _SIDE_TAGS else "",
+            "name": name, "location": _clean_name(location), "message": msg}
 
 
 class ChatLogReader(threading.Thread):

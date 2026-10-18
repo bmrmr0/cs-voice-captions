@@ -42,6 +42,13 @@ class Bridge(QObject):
     show_window = Signal()
 
 
+def _chat_tag(r):
+    """"TEAM", or "TEAM · CT Start" when CS2 said where the player was."""
+    scope = r.get("scope", "")
+    loc = r.get("location", "")
+    return html_escape(f"{scope} · {loc}" if scope and loc else scope)
+
+
 def _gloss_html(r, size_px, block):
     """The slang note for a caption: each word the dictionary knows and what
     it means. Amber and small, so it reads as an aside to the caption rather
@@ -157,7 +164,7 @@ class Overlay(QWidget):
 
         if r.get("kind") == "chat":
             # speech bubble + real player name (from console.log) + chat channel
-            scope = html_escape(r.get("scope", ""))
+            scope = _chat_tag(r)
             scope_tag = (f"<span style='color:#888;font-size:{small}px'>[{scope}]</span> "
                          if scope else "")
             return (f"&#128172; <span style='color:{color};font-weight:bold'>{label}</span> "
@@ -332,7 +339,7 @@ class History(QWidget):
         orig = (f" <span style='color:#888'>({html_escape(r['original'])})</span>"
                 if r.get("original") else "")
         if r.get("kind") == "chat":
-            scope = html_escape(r.get("scope", ""))
+            scope = _chat_tag(r)
             tag = f" <span style='color:#888'>[{scope}]</span>" if scope else ""
             marker = "&#128172;"
         else:
