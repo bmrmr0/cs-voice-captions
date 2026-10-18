@@ -272,7 +272,8 @@ def main():
             overlay.apply_settings()
 
     settings = SettingsWindow(cfg, on_change=on_setting_change)
-    history = History(cfg.get("history", {}), on_settings=settings.open)
+    history = History(cfg.get("history", {}), on_settings=settings.open,
+                      on_clear=overlay.clear)
 
     bridge.new_caption.connect(
         lambda r: (overlay.add_caption(r), history.add_caption(r), writer.add_caption(r)))

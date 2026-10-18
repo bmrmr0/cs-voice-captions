@@ -184,6 +184,12 @@ class Overlay(QWidget):
     def add_status(self, text):
         self._add(f"<i style='color:#aaaaaa'>{html_escape(text)}</i>", 6)
 
+    def clear(self):
+        for lbl, _ in self._items:
+            self._drop(lbl)
+        self._items = []
+        self._reflow()
+
     # -- dragging ----------------------------------------------------------
     def mousePressEvent(self, ev):
         if not self._locked and ev.button() == Qt.LeftButton:
@@ -254,8 +260,9 @@ class Overlay(QWidget):
 
 
 class History(QWidget):
-    def __init__(self, hcfg=None, on_settings=None):
+    def __init__(self, hcfg=None, on_settings=None, on_clear=None):
         super().__init__()
+        self._on_clear = on_clear
         hcfg = hcfg or {}
         self.setWindowTitle("CS Voice Captions")
         self.resize(580, 640)
@@ -272,22 +279,34 @@ class History(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        # The tray icon is easy to lose in the overflow area, so the controls
+        # live on the window everyone actually has open.
+        bar = QHBoxLayout()
+        bar.setContentsMargins(8, 6, 8, 6)
+        bar.setSpacing(6)
+        bar.addStretch(1)
+        style = ("QPushButton { background:#23272e; color:#e8e8e8; border:1px solid #353b45;"
+                 " border-radius:6px; padding:4px 12px; font-size:13px; }"
+                 "QPushButton:hover { background:#2d333c; }")
+        clear = QPushButton("Clear")
+        clear.setToolTip("Clear this window and the game overlay")
+        clear.clicked.connect(self.clear)
+        buttons = [clear]
         if on_settings is not None:
-            # The tray icon is easy to lose in the overflow area, so settings
-            # are reachable from the window everyone actually has open.
-            bar = QHBoxLayout()
-            bar.setContentsMargins(8, 6, 8, 6)
-            bar.addStretch(1)
-            btn = QPushButton("Settings")
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(
-                "QPushButton { background:#23272e; color:#e8e8e8; border:1px solid #353b45;"
-                " border-radius:6px; padding:4px 12px; font-size:13px; }"
-                "QPushButton:hover { background:#2d333c; }")
-            btn.clicked.connect(on_settings)
-            bar.addWidget(btn)
-            layout.addLayout(bar)
+            settings = QPushButton("Settings")
+            settings.clicked.connect(on_settings)
+            buttons.append(settings)
+        for b in buttons:
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(style)
+            bar.addWidget(b)
+        layout.addLayout(bar)
         layout.addWidget(self.view)
+
+    def clear(self):
+        self.view.clear()
+        if self._on_clear:
+            self._on_clear()
 
     def add_status(self, text):
         self.view.append(f"<i style='color:#888'>· {html_escape(text)}</i>")

@@ -68,10 +68,10 @@ def silero_model():
     return path if os.path.isfile(path) else None
 
 
-def clean():
+def clean(dist="dist"):
     """Remove previous build output. Also the point at which any stale tree
     from another machine (with its paths baked into the .toc files) is gone."""
-    for d in ("build", "dist"):
+    for d in ("build", dist):
         path = os.path.join(ROOT, d)
         if os.path.isdir(path):
             print(f"[build] removing {d}/")
@@ -87,6 +87,10 @@ def main():
                     help="keep a console window open for debugging")
     ap.add_argument("--no-clean", action="store_true",
                     help="reuse the previous build tree (faster, less safe)")
+    ap.add_argument("--dist", default="dist",
+                    help="output folder. Building somewhere other than dist/ "
+                         "lets the copy in dist/ keep running meanwhile; "
+                         "Windows won't let a running exe be replaced")
     args = ap.parse_args()
 
     try:
@@ -96,13 +100,14 @@ def main():
                  "  pip install -r requirements-build.txt")
 
     if not args.no_clean:
-        clean()
+        clean(args.dist)
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean",
         "--onefile",
         "--name", NAME,
+        "--distpath", os.path.join(ROOT, args.dist),
         "--console" if args.console else "--windowed",
         # Keep the working directory out of the module search path so the exe
         # can never import a stray .py sitting next to it.
@@ -133,12 +138,12 @@ def main():
     if rc != 0:
         sys.exit(f"[build] PyInstaller failed with exit code {rc}")
 
-    exe = os.path.join(ROOT, "dist", f"{NAME}.exe")
+    exe = os.path.join(ROOT, args.dist, f"{NAME}.exe")
     if not os.path.isfile(exe):
         sys.exit("[build] PyInstaller reported success but produced no exe")
 
     size_mb = os.path.getsize(exe) / (1024 * 1024)
-    print(f"[build] done: dist/{NAME}.exe ({size_mb:.0f} MB)")
+    print(f"[build] done: {args.dist}/{NAME}.exe ({size_mb:.0f} MB)")
 
 
 if __name__ == "__main__":
