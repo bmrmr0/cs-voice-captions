@@ -127,6 +127,10 @@ def main():
         print("[build] WARNING: silero-vad not installed; the exe will fall "
               "back to webrtcvad, which cannot tell the game from a person")
 
+    # The slang dictionary ships inside the exe; glossary.py looks for it at
+    # the bundle root, and merges the user's own copy over it.
+    cmd += ["--add-data", f"{os.path.join(ROOT, 'slang.json')}{os.pathsep}."]
+
     for pkg in COLLECT_ALL:
         cmd += ["--collect-all", pkg]
     for mod in EXCLUDES:

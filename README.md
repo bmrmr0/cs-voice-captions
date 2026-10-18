@@ -175,7 +175,7 @@ itself when you move the overlay.
 | `translation.only_foreign` | `true` | Show only foreign speech and hide English — you can already understand your English teammates. |
 | `translation.languages` | `["ru", "uk"]` | Only caption speech detected as these languages; `[]` means any. On short clips Whisper's language guess is close to random, so this removes most junk captions. |
 | `translation.verify_language` | `true` | Before captioning a clip as foreign, a second copy of the model on the CPU checks the language; the clip is dropped if they disagree. The NPU is consistently wrong about short clips — it calls English, CS2's own voice lines and noise Russian — and the two disagree on exactly those. Costs ~370 MB and about a second on those clips only. |
-| `translation.slang` | `true` | Russian CS slang Whisper translates word for word: `есть!` is "Got him!", not "Yes". Only when a short clip is nothing but the slang. |
+| `translation.slang` | `true` | Explain slang and swear words from the dictionary — see *Slang and swearing*. |
 | `translation.show_original` | `false` | Also show the untranslated text in grey. |
 | `vad.aggressiveness` | `2` | 0–3. Higher ignores more background noise but may clip quiet speech. |
 | `vad.min_utterance_s` | `0.5` | Shortest phrase worth captioning. Kept short because most callouts are under two seconds; the junk short clips produce is handled by `translation.languages` instead. |
@@ -188,6 +188,27 @@ itself when you move the overlay.
 | `vad.blocklist` | `[]` | Regular expressions to ignore outright, e.g. `["let the bodies hit the floor"]`. |
 | `overlay.enabled` | `false` | Start with the on-game overlay showing. |
 | `transcript.enabled` | `false` | Write every caption to a text file you can read after the match. |
+
+### Slang and swearing
+
+Machine translation renders gaming slang word for word, and so gets it wrong:
+`есть!` is "got him!", not "yes"; `петух` is a severe insult, not "rooster".
+One player's chat history showed Google turning `ez` into "no" and `prefire`
+into "he prefers".
+
+`slang.json`, built into the exe, fills that gap. Per language it has
+**phrases** — when a whole message is just one, the caption becomes its
+meaning (`Есть, есть, есть!` → "Got him!") — and **terms**, which are
+explained in a small note under the caption wherever they appear. The
+translation itself is left alone; swapping one word inside machine-translated
+text would garble the rest. A trailing `*` matches any word ending, so
+`петух*` also catches `петуха`. Transliterated swearing (`cyka blyat`,
+`kurwa`, `amk`) is explained in any chat line, including the plain-Latin ones
+that are never translated.
+
+Add your own under **Settings → Edit my dictionary…**, which opens a
+`slang.json` in the settings folder. It is merged over the built-in one and
+picked up a few seconds after you save.
 
 ### A note on output language
 

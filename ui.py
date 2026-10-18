@@ -42,6 +42,19 @@ class Bridge(QObject):
     show_window = Signal()
 
 
+def _gloss_html(r, size_px, block):
+    """The slang note for a caption: each word the dictionary knows and what
+    it means. Amber and small, so it reads as an aside to the caption rather
+    than part of what was said."""
+    items = r.get("gloss") or []
+    if not items:
+        return ""
+    body = " &nbsp;·&nbsp; ".join(
+        f"<b>{html_escape(w)}</b> = {html_escape(m)}" for w, m in items)
+    sep = "<br>" if block else " "
+    return f"{sep}<span style='color:#d9b25f;font-size:{size_px}px'>{body}</span>"
+
+
 class Overlay(QWidget):
     def __init__(self, ocfg, on_move=None):
         super().__init__(None)
@@ -148,7 +161,7 @@ class Overlay(QWidget):
             scope_tag = (f"<span style='color:#888;font-size:{small}px'>[{scope}]</span> "
                          if scope else "")
             return (f"&#128172; <span style='color:{color};font-weight:bold'>{label}</span> "
-                    f"{scope_tag}{text}{orig}{note}")
+                    f"{scope_tag}{text}{orig}{note}{_gloss_html(r, small, True)}")
 
         # voice: coloured dot + speaker name + source-language arrow
         tag = ""
@@ -157,7 +170,7 @@ class Overlay(QWidget):
                    f"[{html_escape(r.get('lang', '?'))}&#8594;]</span> ")
         dot = f"<span style='color:{color}'>&#9679;</span>"
         return (f"{dot} <span style='color:{color};font-weight:bold'>{label}</span> "
-                f"{tag}{text}{orig}{note}")
+                f"{tag}{text}{orig}{note}{_gloss_html(r, small, True)}")
 
     # -- public API --------------------------------------------------------
     def apply_settings(self):
@@ -329,6 +342,7 @@ class History(QWidget):
         self.view.append(
             f"<span style='color:#666'>{ts}</span> "
             f"{marker} <b style='color:{color}'>{label}</b>{tag} {text}{orig}"
+            f"{_gloss_html(r, 12, False)}"
         )
 
 

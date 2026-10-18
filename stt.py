@@ -126,38 +126,10 @@ GAME_VOICE_LINES = {
     "get in position and wait for my go", "need a drop",
 }
 
-# Russian CS slang that Whisper translates word for word and so gets wrong:
-# "есть!" is "got him!", not "yes". Applied only when a short clip is nothing
-# but one of these (repeats allowed: "есть, есть, есть"), never to words
-# inside a sentence, where swapping one word would mangle the rest.
-RU_SLANG = {
-    "есть": "Got him!",
-    "минус": "Got one!", "минус один": "Got one!",
-    "минус два": "Got two!", "минус три": "Got three!",
-    "плюс": "One more!", "плюс один": "One more!", "плюс два": "Two more!",
-    "лоу": "He's low!", "он лоу": "He's low!", "лоу хп": "He's low!",
-    "добей": "Finish him!", "добивай": "Finish him!",
-    "раш": "Rush!", "рашим": "Rush!",
-    "го": "Go!", "гоу": "Go!", "погнали": "Let's go!",
-    "сзади": "Behind!", "изи": "Easy!",
-    "красава": "Nice one!", "красавчик": "Nice one!",
-    "плентят": "They're planting!", "плэнтят": "They're planting!",
-    "дефузят": "They're defusing!", "дефают": "They're defusing!",
-}
-
-
 def _norm_phrase(text):
     """Lower-case words only, no punctuation, ё folded into е."""
     t = (text or "").lower().replace("ё", "е")
     return " ".join(re.findall(r"[\w'-]+", t))
-
-
-def _slang_meaning(native):
-    """The meaning of `native` if the whole utterance is one slang phrase,
-    else None. Immediate repeats collapse first: "есть есть есть" -> "есть"."""
-    words = _norm_phrase(native).split()
-    collapsed = [w for i, w in enumerate(words) if i == 0 or w != words[i - 1]]
-    return RU_SLANG.get(" ".join(collapsed))
 
 
 # Shapes of the same thing that vary too much to list exactly.
@@ -469,25 +441,38 @@ class Transcriber:
                           f"{other} (translation.verify_language): {text[:60]}")
                     return None
             print(f"[stt] detected {lang or '?'}: {text[:60]}")
-            original = None
-            # Russian slang the translate task renders word for word ("есть"
-            # -> "yes" when it means "got him"). Needs the Russian text, so one
-            # extra pass, only for short clips where a lone callout is likely.
-            if (lang in ("ru", "uk") and self.tcfg.get("slang", True)
-                    and len(audio) <= 3 * 16000):
-                native, _ = self._run(audio, task="transcribe", language=lang)
-                meaning = _slang_meaning(native)
-                if meaning:
-                    print(f"[stt] slang: {native.strip()[:40]} -> {meaning}")
-                    text, original = meaning, native.strip()
-            text = self._clean(text, dedupe=True)
+            original, gloss, from_phrase = None, [], False
+            # Slang and swearing the translate task renders word for word
+            # ("есть" -> "yes" when it means "got him"). The dictionary works
+            # on the original-language text, so that costs one extra pass --
+            # only for languages it has entries for, and only on clips that
+            # are about to be shown.
+            if self.tcfg.get("slang", True):
+                import glossary
+                g = glossary.get()
+                if g.has(lang):
+                    native = self._run(audio, task="transcribe", language=lang)[0].strip()
+                    meaning = g.phrase(native, [lang])
+                    if meaning:
+                        print(f"[stt] slang: {native[:40]} -> {meaning}")
+                        text, original, from_phrase = meaning, native, True
+                    else:
+                        gloss = g.terms(native, [lang])
+                        if gloss:
+                            print("[stt] slang: " + "; ".join(f"{w} = {m}" for w, m in gloss))
+                        if self.tcfg.get("show_original"):
+                            original = self._clean(native)
+            # A dictionary phrase is not repetition noise: "Got him!" turns
+            # up many times a match, and the repeat filter (there for music
+            # kits) would swallow every one after the first.
+            text = self._clean(text, dedupe=not from_phrase)
             if not text:
                 return None
             if original is None and self.tcfg.get("show_original"):
                 otext, _ = self._run(audio, task="transcribe", language=lang)
                 original = self._clean(otext)
             return {"source": source_key, "lang": lang, "text": text,
-                    "original": original, "translated": True}
+                    "original": original, "translated": True, "gloss": gloss}
 
         text, lang = self._run(audio, task="transcribe")
         text = self._clean(text, dedupe=True)

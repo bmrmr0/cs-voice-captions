@@ -199,7 +199,8 @@ class ChatWorker(threading.Thread):
         self.stop_event = stop_event
 
     def run(self):
-        from translate import make_text_translator
+        from translate import make_text_translator, _guess_sources
+        import glossary
         tcfg = self.cfg.get("translation", {})
         target = tcfg.get("target_language", "English")
         target_is_en = target.lower() in ("english", "en")
@@ -223,15 +224,30 @@ class ChatWorker(threading.Thread):
             text = ev["message"]
             original = None
             translated = False
+            gloss = []
+            slang = tcfg.get("slang", True)
+            langs = _guess_sources(text)
+            # A message that is nothing but a known slang phrase gets its
+            # meaning directly, and costs no translation request.
+            meaning = glossary.get().phrase(text, langs) if slang else None
+            if meaning:
+                original, text, translated = text, meaning, True
             # Skip pointless translation of plain-ASCII chat when target is English.
-            if (translator and ccfg.get("translate", True)
+            elif (translator and ccfg.get("translate", True)
                     and not (target_is_en and text.isascii())):
                 tr = translator.translate(text)
                 if tr and tr.strip() and tr.strip() != text.strip():
                     original, text, translated = text, tr, True
+            # Explain slang in what the player actually typed. Plain-ASCII
+            # lines are never translated, but transliterated swearing
+            # ("cyka blyat") is still worth explaining.
+            if slang and not meaning:
+                gloss = glossary.get().terms(original or text, langs)
             scope = ev.get("scope", "")
             print(f"[chat:{scope}] {ev.get('name', '?')}: {text}"
-                  + (f"   (from: {original})" if original else ""))
+                  + (f"   (from: {original})" if original else "")
+                  + ("   [slang: " + "; ".join(f"{w} = {m}" for w, m in gloss) + "]"
+                     if gloss else ""))
             self.bridge.new_caption.emit({
                 "kind": "chat",
                 "scope": scope,
@@ -240,6 +256,7 @@ class ChatWorker(threading.Thread):
                 "text": text,
                 "original": original,
                 "translated": translated,
+                "gloss": gloss,
                 "lang": "",
                 "ts": time.strftime("%H:%M:%S"),
             })

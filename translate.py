@@ -160,8 +160,24 @@ class _ChainTranslator:
             # Handed back unchanged: wrong guess, so try the next candidate.
         return None
 
+    CACHE_SIZE = 500
+
     def translate(self, text):
-        return self._via_google(text) or self._via_mymemory(text)
+        # Chat repeats itself ("gg", "nice", the same insult every round),
+        # and each request spends quota on a service that is either
+        # rate-limiting this connection (Google) or capped per day (MyMemory).
+        # Only successes are cached, so a failure is retried next time.
+        key = text.strip()
+        cache = self.__dict__.setdefault("_cache", {})
+        if key in cache:
+            cache[key] = cache.pop(key)          # most recently used goes last
+            return cache[key]
+        out = self._via_google(text) or self._via_mymemory(text)
+        if out:
+            cache[key] = out
+            if len(cache) > self.CACHE_SIZE:
+                cache.pop(next(iter(cache)))     # evict the least recently used
+        return out
 
 
 def make_text_translator(cfg):

@@ -137,14 +137,30 @@ class SettingsWindow(QWidget):
         lay.addLayout(grid)
         self.cb_verify = QCheckBox("Double-check the language before captioning "
                                    "(far fewer false captions; uses ~370 MB)")
-        self.cb_slang = QCheckBox("Translate Russian gaming slang "
+        self.cb_slang = QCheckBox("Explain slang and swear words from the dictionary "
                                   "(“есть!” → “Got him!”)")
         self.cb_verify.toggled.connect(
             lambda v: self._set("translation", "verify_language", v))
         self.cb_slang.toggled.connect(lambda v: self._set("translation", "slang", v))
         lay.addWidget(self.cb_verify)
-        lay.addWidget(self.cb_slang)
+        row = QHBoxLayout()
+        row.addWidget(self.cb_slang, 1)
+        edit = QPushButton("Edit my dictionary…")
+        edit.setToolTip("Add your own slang. Saved changes apply within a few seconds.")
+        edit.clicked.connect(self._edit_dictionary)
+        row.addWidget(edit)
+        lay.addLayout(row)
         return box
+
+    def _edit_dictionary(self):
+        """Open the user's own slang.json (made from a template the first
+        time) in whatever edits .json files on this machine."""
+        import os
+        import glossary
+        try:
+            os.startfile(glossary.user_file())
+        except Exception as e:  # noqa: BLE001
+            print(f"[settings] could not open the dictionary: {e}")
 
     def _build_voice(self):
         box = QGroupBox("Voice detection")

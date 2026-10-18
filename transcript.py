@@ -45,6 +45,8 @@ class TranscriptWriter:
         line = f"{ts} ({marker}){tag} {label}: {r.get('text', '')}"
         if r.get("original"):
             line += f"   | original: {r['original']}"
+        if r.get("gloss"):
+            line += "   | slang: " + "; ".join(f"{w} = {m}" for w, m in r["gloss"])
         self._write(line)
 
     def add_status(self, text):
