@@ -102,6 +102,64 @@ HALLUCINATIONS = {
     "i'll see you next time", "bye bye", "bye-bye",
 }
 
+# CS2's own radio commands and agent voice lines. They are recorded speech, so
+# the voice detector passes them, and on a short clip Whisper can tag them as
+# any language -- one evening a hostage-map line went up as Russian. Matched
+# against the whole caption only, and limited to the scripted phrasings: the
+# generic ones ("go go go", "follow me", "nice shot", "thanks") are said by
+# real teammates too, including Russians whose "го го" translates to exactly
+# that, so they are deliberately not here.
+GAME_VOICE_LINES = {
+    "affirmative", "roger that", "enemy spotted", "enemy down", "need backup",
+    "sector clear", "i'm in position", "reporting in", "fire in the hole",
+    "flashbang", "flashbang out", "throwing flashbang", "throwing flash",
+    "throwing smoke", "smoke out", "throwing molotov", "throwing incendiary",
+    "throwing grenade", "throwing decoy", "get out of there it's gonna blow",
+    "bomb has been planted", "the bomb has been planted",
+    "bomb has been defused", "the bomb has been defused",
+    "counter-terrorists win", "counter terrorists win", "terrorists win",
+    "hostage has been rescued", "the hostage has been rescued",
+    "the hostages", "going for the hostages", "i'm going to the hostages",
+    "i'm going for the hostages", "taking fire need assistance",
+    "storm the front", "regroup team", "stick together team",
+    "hold this position", "you take the point", "team report in",
+    "get in position and wait for my go", "need a drop",
+}
+
+# Russian CS slang that Whisper translates word for word and so gets wrong:
+# "есть!" is "got him!", not "yes". Applied only when a short clip is nothing
+# but one of these (repeats allowed: "есть, есть, есть"), never to words
+# inside a sentence, where swapping one word would mangle the rest.
+RU_SLANG = {
+    "есть": "Got him!",
+    "минус": "Got one!", "минус один": "Got one!",
+    "минус два": "Got two!", "минус три": "Got three!",
+    "плюс": "One more!", "плюс один": "One more!", "плюс два": "Two more!",
+    "лоу": "He's low!", "он лоу": "He's low!", "лоу хп": "He's low!",
+    "добей": "Finish him!", "добивай": "Finish him!",
+    "раш": "Rush!", "рашим": "Rush!",
+    "го": "Go!", "гоу": "Go!", "погнали": "Let's go!",
+    "сзади": "Behind!", "изи": "Easy!",
+    "красава": "Nice one!", "красавчик": "Nice one!",
+    "плентят": "They're planting!", "плэнтят": "They're planting!",
+    "дефузят": "They're defusing!", "дефают": "They're defusing!",
+}
+
+
+def _norm_phrase(text):
+    """Lower-case words only, no punctuation, ё folded into е."""
+    t = (text or "").lower().replace("ё", "е")
+    return " ".join(re.findall(r"[\w'-]+", t))
+
+
+def _slang_meaning(native):
+    """The meaning of `native` if the whole utterance is one slang phrase,
+    else None. Immediate repeats collapse first: "есть есть есть" -> "есть"."""
+    words = _norm_phrase(native).split()
+    collapsed = [w for i, w in enumerate(words) if i == 0 or w != words[i - 1]]
+    return RU_SLANG.get(" ".join(collapsed))
+
+
 # Shapes of the same thing that vary too much to list exactly.
 HALLUCINATION_PATTERNS = [re.compile(p, re.IGNORECASE) for p in (
     r"\b(subtitles?|captions?|subtitle editor|corrector)\b.*\b(by|made|created|edited)\b",
@@ -170,6 +228,8 @@ class Transcriber:
         self.device = "CPU"
         self.device_summary = "CPU"
         self._pipe = None
+        self._verifier = None          # second opinion on the language, on the CPU
+        self._verifier_failed = False
         self._load()
 
     # -- setup -------------------------------------------------------------
@@ -247,6 +307,7 @@ class Transcriber:
         import config as config_mod
 
         path = self._model_path()
+        self._model_dir = path
         device, available = self._pick_device()
 
         # Compiling for the NPU takes about a minute the first time. Cache the
@@ -272,6 +333,10 @@ class Transcriber:
                                if device.upper().startswith("NPU") else device)
         print(f"[stt] '{self.scfg.get('model', 'small')}' ready on {device} "
               f"(devices seen: {available})")
+        # Load the language double-check now, not on the first foreign clip,
+        # so that clip's caption isn't held up by the load as well.
+        if self.tcfg.get("verify_language", True):
+            self._get_verifier()
 
     # -- transcription -----------------------------------------------------
     def _run(self, audio, task="transcribe", language=None):
@@ -290,6 +355,9 @@ class Transcriber:
         norm = t.lower().strip(" .!?,…\"'")
         if norm in HALLUCINATIONS or any(p.search(t) for p in HALLUCINATION_PATTERNS):
             print(f"[stt] dropped stock Whisper phrase: {t[:60]}")
+            return ""
+        if _norm_phrase(t) in GAME_VOICE_LINES:
+            print(f"[stt] dropped CS2 voice line: {t[:60]}")
             return ""
         # Music-kit vocals and anything else the user has told us to ignore.
         for pat in self.blocklist:
@@ -318,6 +386,51 @@ class Transcriber:
     def languages(self):
         return {str(c).strip().lower()
                 for c in self.tcfg.get("languages", []) if str(c).strip()}
+
+    def _get_verifier(self):
+        """A CPU copy of the model, used only to double-check the language of
+        clips about to be captioned as foreign.
+
+        On short clips the NPU build is consistently, not randomly, wrong
+        about language: real game clips it called Russian included English,
+        CS2 voice lines and noise -- and asking it again with the clip
+        shifted gave the same wrong answer. The CPU build makes different
+        mistakes. Of every clip checked by hand, all 7 genuinely Russian ones
+        were Russian on both, and all 12 false ones disagreed. About 370 MB
+        and ~0.9s per check, so it runs only on clips about to be shown.
+        Pointless when the main model is already on the CPU."""
+        if (self._verifier is not None or self._verifier_failed
+                or self.device.upper().startswith("CPU")):
+            return self._verifier
+        try:
+            import openvino_genai as ov_genai
+            import config as config_mod
+            self._verifier = ov_genai.WhisperPipeline(
+                self._model_dir, device="CPU",
+                CACHE_DIR=os.path.join(config_mod.data_dir(), "device-cache"))
+            print("[stt] language double-check ready on CPU")
+        except Exception as e:  # noqa: BLE001
+            self._verifier_failed = True
+            print(f"[stt] language double-check unavailable ({e}); continuing without it")
+        return self._verifier
+
+    def _confirmed(self, audio, lang):
+        """None if the CPU model agrees on `lang` (or can't be asked), else
+        the language it heard instead."""
+        if not self.tcfg.get("verify_language", True):
+            return None
+        verifier = self._get_verifier()
+        if verifier is None:
+            return None
+        try:
+            # The language is decided before any text, so a few tokens is
+            # enough; this is what keeps the check under a second.
+            r = verifier.generate(audio, task="translate", max_new_tokens=4)
+            heard = (getattr(r, "language", "") or "").strip().lower()
+        except Exception as e:  # noqa: BLE001
+            print(f"[stt] language double-check failed ({e})")
+            return None
+        return None if heard == (lang or "").lower() else (heard or "?")
 
     def _is_target_lang(self, lang):
         return (lang or "").strip().lower() == self.target_code
@@ -349,12 +462,28 @@ class Transcriber:
                 print(f"[stt] skipped, detected {lang or '?'} "
                       f"(translation.languages): {text[:60]}")
                 return None
+            if not is_target:
+                other = self._confirmed(audio, lang)
+                if other:
+                    print(f"[stt] skipped, detected {lang} but the CPU check heard "
+                          f"{other} (translation.verify_language): {text[:60]}")
+                    return None
             print(f"[stt] detected {lang or '?'}: {text[:60]}")
+            original = None
+            # Russian slang the translate task renders word for word ("есть"
+            # -> "yes" when it means "got him"). Needs the Russian text, so one
+            # extra pass, only for short clips where a lone callout is likely.
+            if (lang in ("ru", "uk") and self.tcfg.get("slang", True)
+                    and len(audio) <= 3 * 16000):
+                native, _ = self._run(audio, task="transcribe", language=lang)
+                meaning = _slang_meaning(native)
+                if meaning:
+                    print(f"[stt] slang: {native.strip()[:40]} -> {meaning}")
+                    text, original = meaning, native.strip()
             text = self._clean(text, dedupe=True)
             if not text:
                 return None
-            original = None
-            if self.tcfg.get("show_original"):
+            if original is None and self.tcfg.get("show_original"):
                 otext, _ = self._run(audio, task="transcribe", language=lang)
                 original = self._clean(otext)
             return {"source": source_key, "lang": lang, "text": text,

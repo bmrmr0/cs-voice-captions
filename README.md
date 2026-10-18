@@ -174,6 +174,8 @@ itself when you move the overlay.
 | `stt.beam_size` | `1` | Raise to 5 for accuracy at the cost of speed. |
 | `translation.only_foreign` | `true` | Show only foreign speech and hide English — you can already understand your English teammates. |
 | `translation.languages` | `["ru", "uk"]` | Only caption speech detected as these languages; `[]` means any. On short clips Whisper's language guess is close to random, so this removes most junk captions. |
+| `translation.verify_language` | `true` | Before captioning a clip as foreign, a second copy of the model on the CPU checks the language; the clip is dropped if they disagree. The NPU is consistently wrong about short clips — it calls English, CS2's own voice lines and noise Russian — and the two disagree on exactly those. Costs ~370 MB and about a second on those clips only. |
+| `translation.slang` | `true` | Russian CS slang Whisper translates word for word: `есть!` is "Got him!", not "Yes". Only when a short clip is nothing but the slang. |
 | `translation.show_original` | `false` | Also show the untranslated text in grey. |
 | `vad.aggressiveness` | `2` | 0–3. Higher ignores more background noise but may clip quiet speech. |
 | `vad.min_utterance_s` | `0.5` | Shortest phrase worth captioning. Kept short because most callouts are under two seconds; the junk short clips produce is handled by `translation.languages` instead. |
@@ -240,6 +242,8 @@ says which device it picked.
 sentence out of gunfire if something lets it through. Raise
 `vad.speech_threshold` toward `0.7`. If the log says the VAD backend is
 `webrtc` rather than `silero`, that is the actual problem — see below.
+
+**CS2's own voice lines appear as captions** ("Throwing smoke!", "Fire in the hole"). They are recorded speech, so the detector passes them. The scripted radio and agent lines are filtered by exact match; generic ones like "go go go" are not, because real teammates say them too.
 
 **Music kit vocals appear as captions.** They should be caught automatically,
 since `vad.repeat_window` suppresses anything already shown recently and a kit

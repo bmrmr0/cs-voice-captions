@@ -26,6 +26,7 @@ OWNED = [
     ("chat", "show"), ("chat", "translate"),
     ("translation", "only_foreign"), ("translation", "show_original"),
     ("translation", "languages"),
+    ("translation", "verify_language"), ("translation", "slang"),
     ("vad", "min_utterance_s"), ("vad", "speech_threshold"),
     ("overlay", "font_size"), ("overlay", "width"),
     ("overlay", "max_lines"), ("overlay", "line_ttl_s"),
@@ -134,6 +135,15 @@ class SettingsWindow(QWidget):
             self.lang_boxes[code] = cb
             grid.addWidget(cb, i // 4, i % 4)
         lay.addLayout(grid)
+        self.cb_verify = QCheckBox("Double-check the language before captioning "
+                                   "(far fewer false captions; uses ~370 MB)")
+        self.cb_slang = QCheckBox("Translate Russian gaming slang "
+                                  "(“есть!” → “Got him!”)")
+        self.cb_verify.toggled.connect(
+            lambda v: self._set("translation", "verify_language", v))
+        self.cb_slang.toggled.connect(lambda v: self._set("translation", "slang", v))
+        lay.addWidget(self.cb_verify)
+        lay.addWidget(self.cb_slang)
         return box
 
     def _build_voice(self):
@@ -247,6 +257,8 @@ class SettingsWindow(QWidget):
             for code, cb in self.lang_boxes.items():
                 cb.setChecked(code in langs)
                 cb.setEnabled(bool(langs))
+            self.cb_verify.setChecked(bool(self._get("translation", "verify_language")))
+            self.cb_slang.setChecked(bool(self._get("translation", "slang")))
             self.sp_phrase.setValue(float(self._get("vad", "min_utterance_s")))
             self.sl_sens.setValue(int(round(float(self._get("vad", "speech_threshold")) * 100)))
             self.sp_font.setValue(int(self._get("overlay", "font_size")))
