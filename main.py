@@ -90,7 +90,15 @@ def _start_file_log():
     sys.stderr = _Tee(sys.stderr, log)
 
 
-_start_file_log()
+if __name__ == "__main__":
+    # Before anything else, the log file in particular: a second copy used to
+    # truncate the log the first was still writing. If one is already
+    # running, bring its window forward instead and leave.
+    import single_instance
+    if single_instance.already_running():
+        single_instance.ask_running_copy_to_show()
+        sys.exit(0)
+    _start_file_log()
 
 # WASAPI capture sporadically warns about buffer discontinuities -- harmless.
 warnings.filterwarnings("ignore", message=".*data discontinuity.*")
@@ -334,6 +342,10 @@ def main():
     bridge.toggle_pause.connect(tray.toggle_pause)
     bridge.toggle_overlay.connect(tray.toggle_overlay)
     bridge.show_window.connect(tray.show_window)
+    # A later launch of the exe asks for the window instead of starting a
+    # second copy. Kept referenced so the server lives as long as the app.
+    import single_instance
+    instance_server = single_instance.listen_for_show(tray.show_window, app)  # noqa: F841
     hk = hotkeys_mod.start(
         cfg.get("hotkeys", {}),
         {
