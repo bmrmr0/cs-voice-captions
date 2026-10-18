@@ -230,22 +230,35 @@ class ChatWorker(threading.Thread):
             # A message that is nothing but a known slang phrase gets its
             # meaning directly, and costs no translation request.
             meaning = glossary.get().phrase(text, langs) if slang else None
+            swapped = []
             if meaning:
                 original, text, translated = text, meaning, True
             # Skip pointless translation of plain-ASCII chat when target is English.
             elif (translator and ccfg.get("translate", True)
                     and not (target_is_en and text.isascii())):
-                tr = translator.translate(text)
+                # The translator gets slang already turned into English
+                # ("с вх" -> "с wallhack"); the caption still shows what the
+                # player actually typed as the original.
+                source = text
+                if slang:
+                    source, swapped = glossary.get().pretranslate(text, langs)
+                # Every word swapped ("изи катка" -> "easy match") leaves
+                # nothing to translate -- and nothing for the fallback
+                # translator to recognise the language by, so sending it
+                # would come back empty. It already is the translation.
+                tr = (source if swapped and source.isascii()
+                      else translator.translate(source))
                 if tr and tr.strip() and tr.strip() != text.strip():
                     original, text, translated = text, tr, True
             # Explain slang in what the player actually typed. Plain-ASCII
             # lines are never translated, but transliterated swearing
             # ("cyka blyat") is still worth explaining.
             if slang and not meaning:
-                gloss = glossary.get().terms(original or text, langs)
+                gloss = glossary.get().terms(original or text, langs, skip=swapped)
             scope = ev.get("scope", "")
             print(f"[chat:{scope}] {ev.get('name', '?')}: {text}"
                   + (f"   (from: {original})" if original else "")
+                  + (f"   [swapped before translating: {', '.join(swapped)}]" if swapped else "")
                   + ("   [slang: " + "; ".join(f"{w} = {m}" for w, m in gloss) + "]"
                      if gloss else ""))
             self.bridge.new_caption.emit({

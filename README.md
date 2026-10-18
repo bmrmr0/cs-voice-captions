@@ -206,6 +206,14 @@ text would garble the rest. A trailing `*` matches any word ending, so
 `kurwa`, `amk`) is explained in any chat line, including the plain-Latin ones
 that are never translated.
 
+For chat, CS words with a clean English equivalent go one step further: they
+are swapped for that English *before* the line is sent to the translator, so
+the translation itself comes out right. `легко наверно с вх играть` used to
+come back as "…play with input"; with `вх` swapped for "wallhack" first, it
+comes back as "…play with wallhack". That is the `replace` section of the
+file, and it is kept to words that drop cleanly into a sentence — insults
+stay as notes.
+
 Add your own under **Settings → Edit my dictionary…**, which opens a
 `slang.json` in the settings folder. It is merged over the built-in one and
 picked up a few seconds after you save.

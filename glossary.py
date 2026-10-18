@@ -48,8 +48,16 @@ def _words(text, lang):
 
 
 class _Table:
-    def __init__(self, lang, phrases, terms):
+    def __init__(self, lang, phrases, terms, replace=None):
         self.lang = lang
+        swaps = []
+        for key, english in (replace or {}).items():
+            prefix = key.rstrip().endswith("*")
+            words = _words(key.rstrip().rstrip("*"), lang)
+            if len(words) == 1:            # single words only: swapped in place
+                swaps.append((words[0], prefix, english))
+        swaps.sort(key=lambda e: -len(e[0]))
+        self.swaps = swaps
         self.phrases = {}
         for key, meaning in (phrases or {}).items():
             self.phrases[" ".join(_words(key, lang))] = meaning
@@ -62,6 +70,14 @@ class _Table:
         # Longest first, so "idi nahui" wins over "nahui" and "хуйн*" over "хуй".
         entries.sort(key=lambda e: (-len(e[0]), -len(" ".join(e[0]))))
         self.terms = entries
+
+    def swap_for(self, word):
+        """English to put in place of `word` before translation, or None."""
+        w = _normalize(word, self.lang)
+        for key, prefix, english in self.swaps:
+            if w == key or (prefix and w.startswith(key)):
+                return english
+        return None
 
     def phrase(self, text):
         words = _words(text, self.lang)
@@ -122,11 +138,11 @@ class Glossary:
             for lang, section in source.items():
                 if lang.startswith("_") or not isinstance(section, dict):
                     continue
-                into = merged.setdefault(lang, {"phrases": {}, "terms": {}})
-                for kind in ("phrases", "terms"):
+                into = merged.setdefault(lang, {"phrases": {}, "terms": {}, "replace": {}})
+                for kind in ("phrases", "terms", "replace"):
                     if isinstance(section.get(kind), dict):
                         into[kind].update(section[kind])
-        self._tables = {lang: _Table(lang, s["phrases"], s["terms"])
+        self._tables = {lang: _Table(lang, s["phrases"], s["terms"], s["replace"])
                         for lang, s in merged.items()}
         self._user_mtime = self._mtime()
 
@@ -167,7 +183,34 @@ class Glossary:
                     return meaning
         return None
 
-    def terms(self, text, langs, limit=3):
+    def pretranslate(self, text, langs):
+        """`text` with known slang swapped for its English, ready for the
+        translator, plus the words that were swapped. Everything else is
+        left exactly as typed.
+
+        A translator handles an English word dropped into a Russian sentence
+        far better than it handles the slang: "легко наверно с вх играть"
+        came back as "...play with input", and with "wallhack" in place of
+        "вх" as "...play with wallhack"."""
+        with self._lock:
+            self._maybe_reload()
+            tables = [t for t in self._tables_for(langs) if t.swaps]
+            if not tables:
+                return text, []
+            swapped = []
+
+            def swap(m):
+                word = m.group(0)
+                for t in tables:
+                    english = t.swap_for(word)
+                    if english:
+                        swapped.append(_normalize(word, t.lang))
+                        return english
+                return word
+
+            return _WORDS.sub(swap, text), swapped
+
+    def terms(self, text, langs, limit=3, skip=()):
         """[(word, meaning), ...] for known terms in `text`. A word matched by
         two tables (Polish "kurw*" and the transliterated "kurwa") is
         explained once, by whichever table is more specific."""
@@ -176,7 +219,9 @@ class Glossary:
             out, seen = [], set()
             for table in self._tables_for(list(langs) + ["any"]):
                 for word, meaning in table.find_terms(text):
-                    if word not in seen:
+                    # Already put right in the translation itself: a note
+                    # saying so again is noise.
+                    if word not in seen and word not in skip:
                         seen.add(word)
                         out.append((word, meaning))
             return out[:limit]

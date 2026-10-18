@@ -1,5 +1,5 @@
 {
-  "_about": "Slang and swear words machine translation gets wrong. Per language: 'phrases' replace a caption when the whole message is just that phrase (repeats allowed: 'есть есть' matches 'есть'); 'terms' are explained in a note under the caption wherever they appear. A trailing * matches any ending ('петух*' also catches 'петуха'). Matching ignores case, punctuation and, for Latin-script languages, accents. 'any' is checked for every message, and is meant for transliterations and shorthand that look the same in any language. Add your own in slang.json in the app's settings folder; it is merged over this one.",
+  "_about": "Slang and swear words machine translation gets wrong. Per language: 'phrases' replace a caption when the whole message is just that phrase (repeats allowed: 'есть есть' matches 'есть'); 'terms' are explained in a note under the caption wherever they appear; 'replace' words are swapped for their English before a chat line is sent to the translator, so the translation itself comes out right ('с вх' gave 'with input', 'с wallhack' gives 'with wallhack') -- only for words with a clean one-word equivalent, never for insults. A trailing * matches any ending ('петух*' also catches 'петуха'). Matching ignores case, punctuation and, for Latin-script languages, accents. 'any' is checked for every message, and is meant for transliterations and shorthand that look the same in any language. Add your own in slang.json in the app's settings folder; it is merged over this one.",
 
   "ru": {
     "phrases": {
@@ -113,6 +113,32 @@
       "козел": "jerk (lit. 'goat')",
       "козл*": "jerk (lit. 'goat')",
       "урод*": "freak, ugly bastard"
+    },
+    "replace": {
+      "вх": "wallhack",
+      "изи": "easy",
+      "нуб*": "noob",
+      "раш": "rush",
+      "рашим": "rush",
+      "читер*": "cheater",
+      "читак*": "cheater",
+      "софт*": "cheats",
+      "кемпер*": "camper",
+      "авп": "AWP",
+      "авик*": "AWP",
+      "калаш*": "AK",
+      "дигл*": "Deagle",
+      "флеш*": "flash",
+      "смок": "smoke",
+      "смока": "smoke",
+      "смоку": "smoke",
+      "смоки": "smokes",
+      "смоком": "smoke",
+      "молик*": "molotov",
+      "имба": "OP",
+      "лоу": "low",
+      "катк*": "match",
+      "сейв": "save"
     }
   },
 
