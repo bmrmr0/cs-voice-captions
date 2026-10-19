@@ -2,396 +2,191 @@
 
 # CS Voice Captions
 
-Live captions and translation for Counter-Strike 2 — reads your teammates'
-**voice chat** and **text chat**, translates foreign languages, and shows the
-result in a window or as an overlay on top of the game.
+Live captions and English translation for Counter-Strike 2 **voice chat** and
+**text chat**, so you can follow teammates who don't speak your language.
+Shown in a window or as an overlay on top of the game.
 
-Built to be anti-cheat safe: it never reads game memory, never injects into or
-hooks the game process, and never sends input to it. It only uses Windows
-audio APIs and the log file CS2 writes itself.
+It runs on your own PC (on the NPU if you have one), reads only the game's
+audio and the log file CS2 writes itself, and never touches the game process.
 
----
+## Features
 
-## What it does
-
-| Pipeline | Source | How |
-| --- | --- | --- |
-| **Voice** | CS2's audio output | Per-process WASAPI loopback captures only `cs2.exe`, so Spotify and Discord don't leak into your captions. A neural voice detector (Silero) picks actual speech out of the gunfire, then Whisper transcribes and translates it **on the NPU**. |
-| **Text chat** | `console.log` | CS2 writes this itself with the `-condebug` launch option. We tail the file and translate what shows up. |
-| **Speakers** | voice fingerprints | Optional. CS2 mixes all teammates into one stream, so real names aren't available — but distinct *voices* can be told apart and get stable labels (P1, P2, …) with their own colours. |
-
-Everything runs locally except text-chat translation, which uses Google
-Translate by default (in-match chat is public; nothing private leaves your
-machine). Set `chat.translator` to `"off"` if you'd rather it didn't.
-
-### Telling a teammate apart from a gunfight
-
-The app is fed *all* of CS2's audio, so the hard part is not transcription — it
-is deciding what counts as someone talking. A conventional voice detector marks
-gunfire, footsteps and the music kit as speech more or less continuously, and
-Whisper will confidently invent a sentence for every one of them. Silero, a
-small neural detector, separates the two cleanly — measured on this pipeline:
-
-| Input | Peak score | Frames called speech |
-| --- | --- | --- |
-| Speech | **1.000** | 79% |
-| Gunfire-like bursts | 0.062 | 0% |
-| White noise, loud | 0.035 | 0% |
-| Pure tone | 0.002 | 0% |
-| Silence | 0.009 | 0% |
-
-It runs on the CPU in about a millisecond per frame while the NPU handles
-Whisper.
-
-On top of that, captions must be a phrase of at least `vad.min_utterance_s`
-(half a second by default), in one of `translation.languages`, must not repeat a line shown in the last 20 captions
-(which is what music kits do every round), and — with `only_foreign` on — must
-not already be English.
-
-### Captions that don't cost you frames
-
-Whisper runs through OpenVINO, so on a machine with an Intel NPU ("AI Boost",
-Core Ultra and newer) transcription happens on the **NPU** — which means it
-never touches the GPU that is busy running Counter-Strike. On a Core Ultra 9
-this is also simply faster than the CPU:
-
-| Device | Inference, 10s of audio |
-| --- | --- |
-| NPU | **0.40s** |
-| CPU | 2.19s |
-
-Without an NPU it falls back to the CPU. The GPU is never selected
-automatically — on a gaming machine that is the part running the game. Set
-`stt.device` to `"GPU"` if you want it anyway.
-
----
+- **Voice chat captions.** Only CS2's audio is captured, so Discord, music and
+  the browser stay out. Speech is transcribed and translated on your PC.
+- **Text chat translation** for all-chat and team chat, with where a teammate
+  was for team chat.
+- **You pick the languages** to translate (Russian and Ukrainian by default).
+  English is hidden unless you turn it on.
+- **Slang and swearing explained.** `есть!` is "Got him!", not "Yes". You can
+  add your own words.
+- **Junk filtered out:** gunfire, music kits, CS2's own radio lines and
+  repeated chat spam don't become captions.
+- **On-game overlay**, a tray icon that shows whether CS2 is being heard,
+  global hotkeys, and a settings window that explains every option.
 
 ## Install
 
-### Run the release
-
 1. Download `CSVoiceCaptions.exe` from [Releases](../../releases).
-2. **Add `-condebug` to CS2's launch options** — without it there is no text
+2. **Add `-condebug` to CS2's launch options.** Without it there is no text
    chat. In Steam, right-click Counter-Strike 2 → Properties… → General →
-   Launch Options. It makes CS2 write its chat to a log file, which is how the
-   app reads it; it's Valve's own option and touches nothing in the game. The
-   app checks for it on start and reminds you if it's missing.
-3. Run the exe. That's the whole install — one file, nothing beside it. It
-   lives in the system tray.
-4. First launch downloads the speech model and compiles it for your hardware.
-   Expect a couple of minutes; every launch after that is a few seconds.
+   Launch Options. The app reminds you on start if it's missing.
+3. Run the exe. There's nothing else to install; it lives in the system tray.
+4. The first launch downloads the speech model and prepares it for your
+   hardware, which takes a couple of minutes. Later launches take seconds.
 
-Everything the app needs at runtime — the model, your settings, the compiled
-device cache, transcripts — lives in `%LOCALAPPDATA%\CSVoiceCaptions`. Delete
-that folder to reset the app completely. Put a file named `portable.txt` next
-to the exe to keep it all in the exe's own folder instead, for a USB stick.
+For the overlay, run CS2 in **Fullscreen Windowed**: exclusive fullscreen
+draws over every other window.
 
-### Run from source
+<details>
+<summary><b>Requirements, where files are kept, portable mode</b></summary>
 
-```bash
-git clone https://github.com/bmrmr0/cs-voice-captions.git
-```
+<br>
 
-```bash
-cd cs-voice-captions && python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
-```
+**Requirements:** Windows 10 or 11, 64-bit. Capturing CS2's audio on its own
+needs Windows 11 or a recent Windows 10; older versions fall back to the
+whole desktop's audio. An Intel NPU (Core Ultra) is used if there is one,
+otherwise the CPU.
 
-```bash
-.venv\Scripts\python main.py
-```
+**Files:** your settings, the downloaded model and the log live in
+`%LOCALAPPDATA%\CSVoiceCaptions`. Delete that folder to reset the app.
 
-Optional extras:
+**Portable mode:** put a file named `portable.txt` next to the exe and
+everything is kept beside it instead, for a USB stick.
 
-```bash
-.venv\Scripts\pip install -r requirements-diarization.txt
-```
+**Why `-condebug`?** It makes CS2 write its chat to a log file, which is how
+the app reads text chat. It's Valve's own launch option and touches nothing in
+the game.
 
-That enables per-speaker labels and colours (pulls in torch, so it is a large
-download). Without it everyone is just labelled `TEAM`.
-
----
-
-## Set up CS2
-
-1. **Text chat** — add `-condebug` to CS2's launch options
-   (Steam → right-click Counter-Strike 2 → Properties → Launch Options).
-   Without it CS2 writes no `console.log` and text chat won't appear.
-2. **Overlay** — run CS2 in **Fullscreen Windowed**. Exclusive fullscreen
-   paints over every other window, including this one.
-
-The captions window works either way; only the on-game overlay needs windowed
-mode.
-
----
+</details>
 
 ## Using it
 
-The tray icon is the control panel. Its colour, and the indicator at the top
-of the captions window, say whether CS2 is actually being heard:
+The tray icon's colour, and the indicator at the top of the captions window,
+show whether CS2 is being heard:
 
-| | Meaning |
+| | |
 | --- | --- |
 | 🟢 **Connected to CS2** | Capturing CS2's audio. |
-| 🟠 **Waiting for CS2…** | CS2 isn't running (or just restarted); the app attaches on its own when it starts. |
-| 🟠 **Capturing whole desktop** | CS2-only capture failed, so every program's audio is captioned. |
-| 🔴 **Not capturing** | Capture stopped; see the log. |
+| 🟠 **Waiting for CS2…** | CS2 isn't running yet; the app attaches by itself when it starts. |
+| 🟠 **Capturing whole desktop** | CS2-only capture isn't available, so other programs' audio may be captioned too. |
+| 🔴 **Not capturing** | Capture stopped; the log says why. |
 | ⚪ **Paused** | You paused it. |
 
-The tray menu:
+<details>
+<summary><b>Tray menu, settings and hotkeys</b></summary>
 
-- **Pause / resume listening**
-- **Show / hide game overlay**
-- **Unlock overlay to move it** — the overlay is click-through by default so
-  the mouse reaches the game. Unlock it, drag it where you want, lock it
-  again. The position is saved for next time.
-- **Show captions window**
-- **Show text chat** — tick to show chat messages, untick to hide them
-  (hidden chat isn't translated either)
-- **Settings…** — also a button in the captions window
-- **Quit**
+<br>
 
-The settings window covers what is safe to change mid-match: showing and
-translating chat, captioning English speech, showing the original beside a
-translation, which spoken languages are translated, the slang dictionary, the
-shortest speech worth captioning, how strict speech detection is, and the
-overlay's size and timing. Hover over any option for what it does and when
-you'd change it. Every change applies immediately and is saved. Settings that
-would need a restart or a re-download — the speech model, device, capture
-method, hotkeys — stay in `config.json`.
-
-A player who sends the same chat line again within a minute (spam, or a bound
-key) has it shown once; the repeats are dropped, and aren't sent for
-translation either.
-
-Default global hotkeys, which work while CS2 has focus:
+Right-click the tray icon to pause, show or hide the overlay, unlock the
+overlay to drag it into place, show or hide text chat, and open **Settings**
+(also a button in the captions window). Hover over any setting for what it
+does. Changes apply immediately.
 
 | Hotkey | Action |
 | --- | --- |
-| `Ctrl+Alt+P` | pause / resume listening |
-| `Ctrl+Alt+O` | show / hide the game overlay |
-| `Ctrl+Alt+C` | bring up the captions window |
+| `Ctrl+Alt+P` | Pause / resume |
+| `Ctrl+Alt+O` | Show / hide the overlay |
+| `Ctrl+Alt+C` | Bring up the captions window |
 
-Rebind them under `hotkeys` in your settings file. A combination needs at least one
-modifier; if another program already owns it, the app says so at startup and
-carries on without it.
+Everything else, including rebinding the hotkeys, is in the
+[configuration guide](docs/CONFIGURATION.md).
 
----
+</details>
 
-## Configuration
+## Privacy and anti-cheat
 
-The exe ships with **no config file** — every default is compiled in, so a bare
-executable is fully configured. To change something, drop a `config.json` into
-`%LOCALAPPDATA%\CSVoiceCaptions` (or the repo root when running from source)
-containing only the keys you want to override. The app also writes that file
-itself when you move the overlay.
+Your voice never leaves your PC, and nothing touches the game.
 
-### The settings that matter most
+<details>
+<summary><b>Details</b></summary>
 
-| Key | Default | What it does |
-| --- | --- | --- |
-| `sources.teammates` | `true` | Caption CS2's audio. |
-| `sources.my_mic` | `false` | Also caption your own microphone. |
-| `capture.teammates_backend` | `"process"` | `"process"` captures only CS2. `"loopback"` captures the whole desktop. |
-| `stt.device` | `"auto"` | NPU if the machine has one, else CPU. Force it with `"NPU"`, `"CPU"`, `"GPU"`, or an exact name like `"GPU.1"`. |
-| `stt.model` | `"small"` | `tiny`, `base`, `small`, `medium`, `large-v3-turbo`. Bigger is more accurate and slower. |
-| `stt.beam_size` | `1` | Raise to 5 for accuracy at the cost of speed. |
-| `translation.only_foreign` | `true` | Show only foreign speech and hide English — you can already understand your English teammates. |
-| `translation.languages` | `["ru", "uk"]` | Only caption speech detected as these languages; `[]` means any. On short clips Whisper's language guess is close to random, so this removes most junk captions. |
-| `translation.verify_language` | `true` | Before captioning a clip as foreign, a second copy of the model on the CPU checks the language; the clip is dropped if they disagree. The NPU is consistently wrong about short clips — it calls English, CS2's own voice lines and noise Russian — and the two disagree on exactly those. Costs ~370 MB and about a second on those clips only. |
-| `translation.slang` | `true` | Explain slang and swear words from the dictionary — see *Slang and swearing*. |
-| `translation.show_original` | `false` | Also show the untranslated text in grey. |
-| `vad.aggressiveness` | `2` | 0–3. Higher ignores more background noise but may clip quiet speech. |
-| `vad.min_utterance_s` | `0.5` | Shortest phrase worth captioning. Kept short because most callouts are under two seconds; the junk short clips produce is handled by `translation.languages` instead. |
-| `vad.backend` | `"silero"` | Neural voice detection. `"webrtc"` is the old detector and cannot tell the game apart from a person — see below. |
-| `vad.speech_threshold` | `0.5` | Silero confidence needed to call something speech. Raise toward `0.7` if game audio still gets through. |
-| `vad.silence_ms` | `900` | Silence that ends a phrase. Too low and one sentence splits into fragments that are too short to caption *and* too short for Whisper to identify the language. |
-| `vad.min_speech_ratio` | `0.25` | How much of the phrase must actually be speech. |
-| `vad.save_clips` | `false` | Write every clip to `clips/` as a .wav named after the rule that discarded it, for working out what a gate is eating. Capped at 400 files. |
-| `vad.repeat_window` | `20` | Suppress a caption identical to one of the last N. Catches music-kit vocals, which sing the same line every round. |
-| `vad.blocklist` | `[]` | Regular expressions to ignore outright, e.g. `["let the bodies hit the floor"]`. |
-| `overlay.enabled` | `false` | Start with the on-game overlay showing. |
-| `transcript.enabled` | `false` | Write every caption to a text file you can read after the match. |
+<br>
 
-### Slang and swearing
+- **Speech recognition runs locally**, on your NPU or CPU.
+- **Text chat is sent to Google Translate** to be translated (MyMemory if
+  Google is unavailable). In-match chat is public; turn translation off in
+  Settings if you'd rather it wasn't sent anywhere.
+- **Only Windows' audio APIs** (the same ones OBS and Discord use) and the log
+  CS2 writes with Valve's own `-condebug` option. No memory reads, no
+  injection, no input sent to the game, no driver.
 
-Machine translation renders gaming slang word for word, and so gets it wrong:
-`есть!` is "got him!", not "yes"; `петух` is a severe insult, not "rooster".
-One player's chat history showed Google turning `ez` into "no" and `prefire`
-into "he prefers".
+Use at your own risk: no third-party tool can be guaranteed against future
+anti-cheat changes.
 
-`slang.json`, built into the exe, fills that gap. Per language it has
-**phrases** — when a whole message is just one, the caption becomes its
-meaning (`Есть, есть, есть!` → "Got him!") — and **terms**, which are
-explained in a small note under the caption wherever they appear. The
-translation itself is left alone; swapping one word inside machine-translated
-text would garble the rest. A trailing `*` matches any word ending, so
-`петух*` also catches `петуха`. Transliterated swearing (`cyka blyat`,
-`kurwa`, `amk`) is explained in any chat line, including the plain-Latin ones
-that are never translated.
-
-For chat, CS words with a clean English equivalent go one step further: they
-are swapped for that English *before* the line is sent to the translator, so
-the translation itself comes out right. `легко наверно с вх играть` used to
-come back as "…play with input"; with `вх` swapped for "wallhack" first, it
-comes back as "…play with wallhack". That is the `replace` section of the
-file, and it is kept to words that drop cleanly into a sentence — insults
-stay as notes.
-
-Add your own under **Settings → Edit my dictionary…**, which opens a
-`slang.json` in the settings folder. It is merged over the built-in one and
-picked up a few seconds after you save.
-
-### A note on output language
-
-Whisper's translate task only ever outputs **English** — that is a limit of the
-model, not of this app. Foreign voice chat becomes English captions. Text chat
-can go to another language via `translation.target_language`, since that path
-uses Google Translate rather than Whisper.
-
----
-
-## Building the exe
-
-```bash
-.venv\Scripts\pip install -r requirements.txt -r requirements-build.txt
-```
-
-```bash
-.venv\Scripts\python build.py
-```
-
-Output lands in `dist/`. `build.py --console` keeps a console window open,
-which is the fastest way to see why something isn't working.
-
----
-
-### Before your first commit
-
-```bash
-git config core.hooksPath tools/githooks
-```
-
-That turns on a check that refuses any commit, or commit message, that
-would publish private data: text pasted from CS2's chat log (other players'
-names and messages — use made-up examples), names from your own CS2 log,
-your machine's paths or name, or anything shaped like a key or token.
-`build.py --release` separately scans the built exe before it can be
-published.
+</details>
 
 ## Troubleshooting
 
-**Where is the log?** `%LOCALAPPDATA%\CSVoiceCaptions\cs-voice-captions.log`
-(or beside the exe in portable mode). It is rewritten each time the app
-starts, and says what was heard, what was captioned, and which rule dropped
-anything that wasn't.
+<details>
+<summary>No text chat</summary>
 
-**No captions at all, and the log says clips were "skipped (detected en)".**
-You have turned `translation.only_foreign` on. Whisper guesses "en" on short,
-noisy clips, so that setting discards far more than it should — an earlier
-build shipped with it on and threw away 95% of its captions. Set it back to
-`false`.
+<br>
 
-**"per-process capture unavailable" / "falling back to desktop loopback".**
-`proc-tap` couldn't start, so the app switched to capturing the whole desktop —
-captions still work, but other apps' audio may be captioned too. Set
-`capture.fallback_to_loopback` to `false` if you'd rather it captured nothing
-than the wrong thing.
+`-condebug` is missing from CS2's launch options (the app reminds you on
+start), or CS2 is in a Steam library the app didn't find. In that case set
+`chat.console_log_path` as described in the
+[configuration guide](docs/CONFIGURATION.md).
 
-**Text chat never appears.** `-condebug` is missing from CS2's launch options,
-or CS2 lives in a Steam library the auto-detect didn't find — set
-`chat.console_log_path` to the full path of `console.log`.
+</details>
 
-**The overlay is invisible in game.** CS2 is in exclusive fullscreen. Switch it
-to Fullscreen Windowed.
+<details>
+<summary>The overlay doesn't show in game</summary>
 
-**Captions lag behind the round.** Use a smaller `stt.model` (`base` or
-`tiny`), or make sure it is running on the NPU — the startup line in the log
-says which device it picked.
+<br>
 
-**Sounds that aren't speech become captions.** Whisper will invent a whole
-sentence out of gunfire if something lets it through. Raise
-`vad.speech_threshold` toward `0.7`. If the log says the VAD backend is
-`webrtc` rather than `silero`, that is the actual problem — see below.
+Switch CS2 to **Fullscreen Windowed**. Exclusive fullscreen draws over every
+other window, including the overlay.
 
-**CS2's own voice lines appear as captions** ("Throwing smoke!", "Fire in the hole"). They are recorded speech, so the detector passes them. The scripted radio and agent lines are filtered by exact match; generic ones like "go go go" are not, because real teammates say them too.
+</details>
 
-**Music kit vocals appear as captions.** They should be caught automatically,
-since `vad.repeat_window` suppresses anything already shown recently and a kit
-sings the same line every round. If a specific line keeps getting through, add
-it to `vad.blocklist`.
+<details>
+<summary>Game sounds or music become captions</summary>
 
-**Short callouts never appear.** Check the log, which says exactly which rule
-discarded each clip. If it is `translation.languages`, the speaker's language
-isn't in the list — add its code, or set `[]` to allow any. If it is
-`vad.min_utterance_s` (0.5s by default), lower it toward `0`.
+<br>
 
-**Odd one-off captions from Russian speech** ("Police!" for a single word).
-Whisper's translation of a clip under about a second is unreliable even when
-it heard the word correctly — `улица` ("street") came back as "Police!".
-Raising `vad.min_utterance_s` trades these for missing short callouts.
+Move **Speech detection** toward *Stricter* in Settings.
 
-Before lowering it, check `vad.silence_ms` — if phrases are being cut into
-1-second pieces, the pieces are short because the sentence was split, not
-because the speaker was brief, and merging them back is the better fix. On one
-8.4-second sentence, `silence_ms: 500` produced a 2.5s fragment that was
-discarded plus a 5.0s clip that survived; at `900` it produced a single 8.0s
-clip and discarded nothing.
+</details>
 
-**Captions in the wrong language, or nonsense foreign text.** Whisper needs a
-couple of seconds before it can tell what language it is hearing. Under about
-two seconds it guesses, and guesses confidently — a clip of English "one RM"
-came back as Swedish, and genuine Russian (`Я не знаю, как это будет` — "I
-don't know how it will be") was translated as "I'll go to the bathroom". The
-fix is longer clips, not a stricter filter: raise `vad.silence_ms` so phrases
-arrive whole.
+<details>
+<summary>Short callouts are missing</summary>
 
-**Working out why a clip was discarded.** Every gate now explains itself, so
-the log names the rule and the number it wanted:
+<br>
 
-```
-[audio:teammates] clip dropped: phrase ran 2.5s (vad.min_utterance_s wants 3.0s)
-[audio:teammates] clip dropped: only 18% of the clip was speech (vad.min_speech_ratio wants 25%)
-```
+Lower **Ignore speech shorter than** in Settings, and check the speaker's
+language is ticked under **Translate speech in**.
 
-If a whole minute passes with nothing captioned, it reports what it did hear,
-which separates "the game was quiet" from "the detector is too strict" from
-"no audio ever arrived":
+</details>
 
-```
-[audio:teammates] nothing captioned in the last minute — loudest level 0.412, best speech score 0.06 (needs 0.5)
-```
+<details>
+<summary>The first launch is slow</summary>
 
-A high level with a low speech score means real sound is arriving but nothing
-in it looks like a person talking.
+<br>
 
-**First launch takes minutes.** It is downloading the model and compiling it
-for your NPU. Both are one-time; the compiled result is cached and later
-launches take seconds.
+It's downloading the speech model and preparing it for your hardware. That
+only happens once.
 
----
+</details>
 
-## How this stays VAC-safe
+<details>
+<summary>Something else</summary>
 
-- Audio comes from the Windows audio session APIs, the same ones OBS and
-  Discord use.
-- Text chat comes from `console.log`, which the game writes itself when you
-  pass Valve's own `-condebug` option.
-- Hotkeys use `RegisterHotKey`, the documented way for a desktop app to claim a
-  shortcut. No keyboard hook, no input sent to the game.
-- Speech recognition runs on your own NPU or CPU. No audio ever leaves the
-  machine.
-- The overlay is an ordinary always-on-top window. Nothing is drawn inside the
-  game's process.
+<br>
 
-No memory reads, no injection, no DLLs, no driver. Player names for voice chat
-are deliberately *not* recovered from the game — that's the part that would
-cross the line — which is why voices are labelled P1/P2 instead.
+The log at `%LOCALAPPDATA%\CSVoiceCaptions\cs-voice-captions.log` says what
+was heard, what was captioned, and why anything else was dropped.
+[How it works](docs/HOW-IT-WORKS.md) explains what it means.
 
-Use at your own risk: no third-party tool can be guaranteed against a future
-anti-cheat policy change.
+</details>
 
----
+## More
+
+- [Configuration](docs/CONFIGURATION.md): every setting, and the slang
+  dictionary.
+- [How it works](docs/HOW-IT-WORKS.md): how speech is detected, filtered and
+  translated, with measurements.
+- [Contributing](CONTRIBUTING.md): running from source, building, releasing.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
