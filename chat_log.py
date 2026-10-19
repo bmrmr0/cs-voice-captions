@@ -100,7 +100,7 @@ _CHAT_RE = re.compile(
 _SIDE_TAGS = {"CT": "TEAM", "T": "TEAM"}
 
 # A living player's name carries where they are, after a small at-sign:
-# "$waGG‎﹫CT Start: nice bro".
+# "Player‎﹫CT Start: nice bro".
 _LOCATION_MARK = "﹫"
 
 

@@ -19,11 +19,20 @@ release/
 *.spec
 
 # --- Runtime / user data ---
-# the user's local settings; config.example.json is what ships
+# Normally all of this lives in %LOCALAPPDATA%\CSVoiceCaptions, but run from
+# source in portable mode it lands in this folder -- and it is private:
+# saved clips are recordings of other players' voices, transcripts and the
+# log hold their names and chat.
 config.json
+portable.txt
+clips/
+transcripts/
+device-cache/
 captions-*.txt
 captions-*.log
 *.log
+# an inherited earlier build, with another machine's paths baked in
+old/
 
 # --- Models / caches ---
 .cache/
