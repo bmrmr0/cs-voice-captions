@@ -95,9 +95,11 @@ if __name__ == "__main__":
     # truncate the log the first was still writing. If one is already
     # running, bring its window forward instead and leave.
     import single_instance
-    if single_instance.already_running():
-        single_instance.ask_running_copy_to_show()
-        sys.exit(0)
+    if not single_instance.acquire():
+        # Same build: the running copy shows its window and we leave. Newer
+        # build: it quits, and we wait for its lock and carry on as the app.
+        if single_instance.handshake() != "bye" or not single_instance.wait_for_lock():
+            sys.exit(0)
     _start_file_log()
 
 # WASAPI capture sporadically warns about buffer discontinuities -- harmless.
@@ -346,9 +348,10 @@ def main():
     bridge.show_window.connect(tray.show_window)
     bridge.connection.connect(tray.set_connection)
     # A later launch of the exe asks for the window instead of starting a
-    # second copy. Kept referenced so the server lives as long as the app.
+    # second copy -- or, if it is a newer build, takes over from this one.
+    # Kept referenced so the server lives as long as the app.
     import single_instance
-    instance_server = single_instance.listen_for_show(tray.show_window, app)  # noqa: F841
+    instance_server = single_instance.listen(tray.show_window, tray.quit, app)  # noqa: F841
     hk = hotkeys_mod.start(
         cfg.get("hotkeys", {}),
         {
