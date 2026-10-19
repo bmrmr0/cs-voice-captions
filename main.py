@@ -28,16 +28,20 @@ for _stream in (sys.stdout, sys.stderr):
 
 
 def _start_file_log():
-    """Mirror stdout/stderr into a log file next to the app.
+    """Mirror stdout/stderr into a log file in the app's data folder.
 
     The windowed exe has no console at all, so without this every diagnostic
     the troubleshooting docs mention would be lost. Kept small: one file,
     truncated each run, best-effort.
+
+    In the data folder (%LOCALAPPDATA%\CSVoiceCaptions, or beside the exe in
+    portable mode) rather than next to the exe: the exe is meant to be one
+    file with nothing written beside it, and the log holds other players'
+    names and chat, which has no business sitting in a Downloads folder.
     """
     try:
-        base = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
-                else os.path.dirname(os.path.abspath(__file__)))
-        log = open(os.path.join(base, "cs-voice-captions.log"), "w",
+        import config as config_mod
+        log = open(os.path.join(config_mod.data_dir(), "cs-voice-captions.log"), "w",
                    encoding="utf-8", errors="replace", buffering=1)
     except Exception:  # noqa: BLE001
         return
@@ -222,6 +226,8 @@ class ChatWorker(threading.Thread):
         # means no translator at all.
         translator = make_text_translator(
             {**self.cfg, "chat": {**ccfg, "translate": True}})
+        recent_lines = {}            # (scope, player) -> (their last line, when)
+        REPEAT_WINDOW_S = 60
 
         while not self.stop_event.is_set():
             try:
@@ -232,6 +238,20 @@ class ChatWorker(threading.Thread):
             # Hidden chat is not translated either: no request is sent for a
             # line nobody will see.
             if not ccfg.get("show", True):
+                continue
+            # The same player sending the same line again (spam, or a bound
+            # key held down) floods the window with copies. Shown once; the
+            # repeats are dropped before they cost a translation request.
+            # While the spam keeps coming the window keeps extending, so a
+            # line resent every few seconds stays hidden. Different players
+            # saying the same thing ("gg" all round) are each still shown.
+            sender = (ev.get("scope", ""), ev.get("name", ""))
+            said = " ".join(ev["message"].lower().split())
+            now = time.monotonic()
+            last = recent_lines.get(sender)
+            recent_lines[sender] = (said, now)
+            if last and last[0] == said and now - last[1] < REPEAT_WINDOW_S:
+                print(f"[chat] skipped repeat from {ev.get('name', '?')}: {ev['message'][:50]}")
                 continue
             text = ev["message"]
             original = None
@@ -404,7 +424,9 @@ def main():
     ticker.timeout.connect(lambda: None)
     ticker.start(250)
 
-    print("[main] running. Control it from the tray icon. Ctrl+C to quit.")
+    from version import __version__
+    print(f"[main] CS Voice Captions {__version__} running. "
+          "Control it from the tray icon. Ctrl+C to quit.")
     try:
         exit_code = app.exec()
     except KeyboardInterrupt:

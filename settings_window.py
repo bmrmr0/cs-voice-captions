@@ -26,7 +26,7 @@ OWNED = [
     ("chat", "show"), ("chat", "translate"),
     ("translation", "only_foreign"), ("translation", "show_original"),
     ("translation", "languages"),
-    ("translation", "verify_language"), ("translation", "slang"),
+    ("translation", "slang"),
     ("vad", "min_utterance_s"), ("vad", "speech_threshold"),
     ("overlay", "font_size"), ("overlay", "width"),
     ("overlay", "max_lines"), ("overlay", "line_ttl_s"),
@@ -52,6 +52,8 @@ QPushButton { background:#23272e; border:1px solid #353b45; border-radius:6px;
             padding:5px 14px; }
 QPushButton:hover { background:#2d333c; }
 QCheckBox:disabled { color:#5c636d; }
+QToolTip { background:#23272e; color:#e8e8e8; border:1px solid #3a414c;
+            padding:6px; font-size:12px; }
 QCheckBox::indicator { width:14px; height:14px; border:1px solid #4a525e;
             border-radius:3px; background:#1b1f25; }
 QCheckBox::indicator:hover { border-color:#6b7584; }
@@ -61,13 +63,33 @@ QCheckBox::indicator:checked:disabled { background:#2a4670; border-color:#2a4670
 """
 
 
+def _tip(text):
+    """Rich text, so Qt wraps a long tooltip instead of drawing one very wide
+    line across the screen."""
+    import html
+    return f"<qt>{html.escape(text)}</qt>"
+
+
+def _tipped(widget, text):
+    widget.setToolTip(_tip(text))
+    return widget
+
+
+def _row(form, label, field, text):
+    """A form row whose label and field both explain themselves on hover."""
+    lbl = _tipped(QLabel(label), text)
+    field.setToolTip(_tip(text))
+    form.addRow(lbl, field)
+
+
 class SettingsWindow(QWidget):
     def __init__(self, cfg, on_change=None):
         super().__init__()
         self.cfg = cfg
         self._on_change = on_change
         self.setObjectName("Settings")
-        self.setWindowTitle("CS Voice Captions — Settings")
+        from version import __version__
+        self.setWindowTitle(f"CS Voice Captions {__version__} — Settings")
         self.setStyleSheet(_STYLE)
         self.setMinimumWidth(460)
 
@@ -102,10 +124,19 @@ class SettingsWindow(QWidget):
     def _build_captions(self):
         box = QGroupBox("Captions")
         lay = QVBoxLayout(box)
-        self.cb_chat = QCheckBox("Show text chat messages")
-        self.cb_chat_tr = QCheckBox("Translate foreign text chat")
-        self.cb_english = QCheckBox("Show English speech (normally hidden — you can already understand it)")
-        self.cb_original = QCheckBox("Show the original text beside each translation")
+        self.cb_chat = _tipped(QCheckBox("Show text chat"),
+            "Show what players type in all-chat and team chat. "
+            "Also in the tray menu.")
+        self.cb_chat_tr = _tipped(QCheckBox("Translate chat"),
+            "Translate chat lines that aren't in English. Lines are sent to "
+            "Google Translate (or MyMemory if Google is unavailable); "
+            "in-match chat is public, and nothing else leaves your PC.")
+        self.cb_english = _tipped(QCheckBox("Also caption English speech"),
+            "English voice chat is hidden by default, because you can hear "
+            "it yourself. Turn this on to caption it too.")
+        self.cb_original = _tipped(QCheckBox("Show the original beside translations"),
+            "Show what was actually said, in grey, after each translation. "
+            "Handy for checking a translation that looks odd.")
         for cb in (self.cb_chat, self.cb_chat_tr, self.cb_english, self.cb_original):
             lay.addWidget(cb)
         self.cb_chat.toggled.connect(lambda v: self._set("chat", "show", v))
@@ -117,36 +148,37 @@ class SettingsWindow(QWidget):
         return box
 
     def _build_languages(self):
-        box = QGroupBox("Spoken languages to caption")
+        box = _tipped(QGroupBox("Translate speech in"),
+            "Which spoken languages get captioned. On short clips the "
+            "language guess is unreliable: noise often comes out as a "
+            "random language. Naming the ones you need keeps most junk "
+            "captions away.")
         lay = QVBoxLayout(box)
-        hint = QLabel("On short clips Whisper's language guess is unreliable, so "
-                      "naming the languages you need removes most junk captions.")
-        hint.setObjectName("Hint")
-        hint.setWordWrap(True)
-        lay.addWidget(hint)
-        self.cb_any = QCheckBox("Any language")
-        self.cb_any.toggled.connect(self._any_toggled)
-        lay.addWidget(self.cb_any)
         grid = QGridLayout()
+        self.cb_any = _tipped(QCheckBox("Any language"),
+            "Caption every foreign language. Expect more junk captions: "
+            "short noises often get mistaken for some language or other.")
+        self.cb_any.toggled.connect(self._any_toggled)
+        grid.addWidget(self.cb_any, 0, 0)
         self.lang_boxes = {}
-        for i, (code, name) in enumerate(LANGUAGES):
-            cb = QCheckBox(name)
+        for i, (code, name) in enumerate(LANGUAGES, start=1):
+            cb = _tipped(QCheckBox(name), f"Caption speech in {name}.")
             cb.toggled.connect(self._languages_changed)
             self.lang_boxes[code] = cb
-            grid.addWidget(cb, i // 4, i % 4)
+            grid.addWidget(cb, i // 3, i % 3)
         lay.addLayout(grid)
-        self.cb_verify = QCheckBox("Double-check the language before captioning "
-                                   "(far fewer false captions; uses ~370 MB)")
-        self.cb_slang = QCheckBox("Explain slang and swear words from the dictionary "
-                                  "(“есть!” → “Got him!”)")
-        self.cb_verify.toggled.connect(
-            lambda v: self._set("translation", "verify_language", v))
+        lay.addSpacing(6)
+        self.cb_slang = _tipped(QCheckBox("Explain slang and swear words"),
+            "Machine translation gets gaming slang and insults wrong: "
+            "\u201c\u0435\u0441\u0442\u044c!\u201d means \u201cGot him!\u201d, "
+            "not \u201cYes\u201d. Fixes what it can, and adds a short note "
+            "under the caption for the rest.")
         self.cb_slang.toggled.connect(lambda v: self._set("translation", "slang", v))
-        lay.addWidget(self.cb_verify)
         row = QHBoxLayout()
         row.addWidget(self.cb_slang, 1)
-        edit = QPushButton("Edit my dictionary…")
-        edit.setToolTip("Add your own slang. Saved changes apply within a few seconds.")
+        edit = _tipped(QPushButton("Edit dictionary\u2026"),
+            "Open your own slang file to add words. It is merged with the "
+            "built-in dictionary and used a few seconds after you save.")
         edit.clicked.connect(self._edit_dictionary)
         row.addWidget(edit)
         lay.addLayout(row)
@@ -163,7 +195,7 @@ class SettingsWindow(QWidget):
             print(f"[settings] could not open the dictionary: {e}")
 
     def _build_voice(self):
-        box = QGroupBox("Voice detection")
+        box = QGroupBox("Voice")
         form = QFormLayout(box)
         self.sp_phrase = QDoubleSpinBox()
         self.sp_phrase.setRange(0.0, 5.0)
@@ -172,9 +204,13 @@ class SettingsWindow(QWidget):
         self.sp_phrase.setSuffix(" s")
         self.sp_phrase.valueChanged.connect(
             lambda v: self._set("vad", "min_utterance_s", round(float(v), 2)))
-        form.addRow("Shortest phrase to caption", self.sp_phrase)
+        _row(form, "Ignore speech shorter than", self.sp_phrase,
+             "Speech shorter than this isn't captioned. Very short clips are "
+             "often noise or mistranslated, but most callouts are under two "
+             "seconds, so raising it costs real ones. Default 0.5 s.")
 
         row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
         left = QLabel("Catch more")
         left.setObjectName("Hint")
         right = QLabel("Stricter")
@@ -186,20 +222,29 @@ class SettingsWindow(QWidget):
         row.addWidget(left)
         row.addWidget(self.sl_sens, 1)
         row.addWidget(right)
-        form.addRow("Voice detector", row)
+        holder = QWidget()
+        holder.setLayout(row)
+        _row(form, "Speech detection", holder,
+             "How sure it must be that someone is talking. Move toward "
+             "Stricter if game sounds or music get captioned; toward Catch "
+             "more if quiet teammates are missed.")
         return box
 
     def _build_overlay(self):
-        box = QGroupBox("Game overlay")
+        box = _tipped(QGroupBox("Game overlay"),
+            "The captions drawn over the game. Turn it on from the tray menu; "
+            "it needs CS2 in Fullscreen Windowed mode.")
         form = QFormLayout(box)
         self.sp_font = self._spin(12, 40, 1, " px", "overlay", "font_size")
         self.sp_width = self._spin(400, 1600, 20, " px", "overlay", "width")
         self.sp_lines = self._spin(1, 10, 1, "", "overlay", "max_lines")
         self.sp_ttl = self._spin(3, 30, 1, " s", "overlay", "line_ttl_s")
-        form.addRow("Text size", self.sp_font)
-        form.addRow("Width", self.sp_width)
-        form.addRow("Lines shown at once", self.sp_lines)
-        form.addRow("Seconds each line stays", self.sp_ttl)
+        _row(form, "Text size", self.sp_font, "Size of the overlay's text.")
+        _row(form, "Width", self.sp_width, "How wide the overlay is; longer captions wrap.")
+        _row(form, "Lines on screen", self.sp_lines,
+             "How many captions the overlay shows at once. The oldest goes first.")
+        _row(form, "Seconds per line", self.sp_ttl,
+             "How long each caption stays on the overlay before it disappears.")
         return box
 
     def _spin(self, lo, hi, step, suffix, section, key):
@@ -273,7 +318,6 @@ class SettingsWindow(QWidget):
             for code, cb in self.lang_boxes.items():
                 cb.setChecked(code in langs)
                 cb.setEnabled(bool(langs))
-            self.cb_verify.setChecked(bool(self._get("translation", "verify_language")))
             self.cb_slang.setChecked(bool(self._get("translation", "slang")))
             self.sp_phrase.setValue(float(self._get("vad", "min_utterance_s")))
             self.sl_sens.setValue(int(round(float(self._get("vad", "speech_threshold")) * 100)))

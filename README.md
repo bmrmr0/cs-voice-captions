@@ -145,13 +145,18 @@ The tray menu:
 - **Settings…** — also a button in the captions window
 - **Quit**
 
-The settings window covers what is safe to change mid-match: showing chat,
-translating chat, showing English speech, showing the original text, which
-spoken languages are captioned, the shortest phrase to caption, how strict the
-voice detector is, and the overlay's text size, width, line count and
-duration. Every change applies immediately and is saved. Settings that would
-need a restart or a re-download — the speech model, device, capture method,
-hotkeys — stay in `config.json`.
+The settings window covers what is safe to change mid-match: showing and
+translating chat, captioning English speech, showing the original beside a
+translation, which spoken languages are translated, the slang dictionary, the
+shortest speech worth captioning, how strict speech detection is, and the
+overlay's size and timing. Hover over any option for what it does and when
+you'd change it. Every change applies immediately and is saved. Settings that
+would need a restart or a re-download — the speech model, device, capture
+method, hotkeys — stay in `config.json`.
+
+A player who sends the same chat line again within a minute (spam, or a bound
+key) has it shown once; the repeats are dropped, and aren't sent for
+translation either.
 
 Default global hotkeys, which work while CS2 has focus:
 
@@ -256,6 +261,11 @@ which is the fastest way to see why something isn't working.
 ---
 
 ## Troubleshooting
+
+**Where is the log?** `%LOCALAPPDATA%\CSVoiceCaptions\cs-voice-captions.log`
+(or beside the exe in portable mode). It is rewritten each time the app
+starts, and says what was heard, what was captioned, and which rule dropped
+anything that wasn't.
 
 **No captions at all, and the log says clips were "skipped (detected en)".**
 You have turned `translation.only_foreign` on. Whisper guesses "en" on short,

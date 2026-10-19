@@ -511,7 +511,8 @@ class TrayController:
         elif state == "connected" and detail and not paused:
             tip = f"Capturing CS2's audio ({detail})."
         self.tray.setIcon(make_icon(color))
-        self.tray.setToolTip(f"CS Voice Captions — {text}")
+        from version import __version__
+        self.tray.setToolTip(f"CS Voice Captions {__version__} — {text}")
         self.history.set_connection_look(color, text, tip)
         self.act_overlay.setText("Hide game overlay" if self.overlay_visible
                                  else "Show game overlay")

@@ -14,10 +14,12 @@ from this machine end up in the binary beyond what PyInstaller needs, and
 survive into a published release.
 """
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NAME = "CSVoiceCaptions"
@@ -78,6 +80,36 @@ def make_icon():
     return path
 
 
+def version_file():
+    """The exe's Windows file properties, written to a temp file for
+    PyInstaller. Product name, version and licence only -- no company or
+    personal name, since the exe is published."""
+    sys.path.insert(0, ROOT)
+    from version import __version__
+    parts = [int(x) for x in __version__.split(".")] + [0, 0, 0]
+    nums = tuple(parts[:4])
+    text = f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={nums}, prodvers={nums}, mask=0x3f, flags=0x0,
+                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('FileDescription', 'CS Voice Captions'),
+      StringStruct('FileVersion', '{__version__}'),
+      StringStruct('InternalName', '{NAME}'),
+      StringStruct('LegalCopyright', 'MIT License'),
+      StringStruct('OriginalFilename', '{NAME}.exe'),
+      StringStruct('ProductName', 'CS Voice Captions'),
+      StringStruct('ProductVersion', '{__version__}')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+"""
+    fd, path = tempfile.mkstemp(suffix="-version.txt")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    return path, __version__
+
+
 def clean(dist="dist"):
     """Remove previous build output. Also the point at which any stale tree
     from another machine (with its paths baked into the .toc files) is gone."""
@@ -97,11 +129,17 @@ def main():
                     help="keep a console window open for debugging")
     ap.add_argument("--no-clean", action="store_true",
                     help="reuse the previous build tree (faster, less safe)")
+    ap.add_argument("--release", action="store_true",
+                    help="build the published exe into release/: leak-scanned, "
+                         "with a SHA-256 checksum file. Fails if the scan finds "
+                         "anything identifying this machine")
     ap.add_argument("--dist", default="dist",
                     help="output folder. Building somewhere other than dist/ "
                          "lets the copy in dist/ keep running meanwhile; "
                          "Windows won't let a running exe be replaced")
     args = ap.parse_args()
+    if args.release:
+        args.dist = "release"
 
     try:
         import PyInstaller  # noqa: F401
@@ -111,6 +149,7 @@ def main():
 
     if not args.no_clean:
         clean(args.dist)
+    ver_file, version = version_file()
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -120,6 +159,7 @@ def main():
         # Drawn by app_icon.py, the same code the running app uses, so the
         # exe's icon and the window/tray icon can't drift apart.
         "--icon", make_icon(),
+        "--version-file", ver_file,
         "--distpath", os.path.join(ROOT, args.dist),
         "--console" if args.console else "--windowed",
         # Keep the working directory out of the module search path so the exe
@@ -160,7 +200,35 @@ def main():
         sys.exit("[build] PyInstaller reported success but produced no exe")
 
     size_mb = os.path.getsize(exe) / (1024 * 1024)
-    print(f"[build] done: {args.dist}/{NAME}.exe ({size_mb:.0f} MB)")
+    print(f"[build] done: {args.dist}/{NAME}.exe ({size_mb:.0f} MB), version {version}")
+    try:
+        os.remove(ver_file)
+    except OSError:
+        pass
+
+    if args.release:
+        release(exe, version)
+
+
+def release(exe, version):
+    """Leak-scan the exe, then write its checksum. Refuses to finish if the
+    scan finds the builder's name, paths or machine in it."""
+    print("[build] scanning the exe for anything identifying this machine...")
+    rc = subprocess.call([sys.executable, os.path.join(ROOT, "tools", "leak_scan.py"), exe],
+                         cwd=ROOT)
+    if rc != 0:
+        os.remove(exe)
+        sys.exit("[build] RELEASE BLOCKED: the exe contains private data (see above); "
+                 "it has been deleted")
+    digest = hashlib.sha256()
+    with open(exe, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    sums = os.path.join(os.path.dirname(exe), "SHA256SUMS.txt")
+    with open(sums, "w", encoding="ascii", newline="\n") as f:
+        f.write(f"{digest.hexdigest()}  {os.path.basename(exe)}\n")
+    print(f"[build] release {version} ready in {os.path.relpath(os.path.dirname(exe), ROOT)}/: "
+          f"{os.path.basename(exe)} + SHA256SUMS.txt")
 
 
 if __name__ == "__main__":
