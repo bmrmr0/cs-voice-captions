@@ -1,3 +1,5 @@
+<img src="assets/icon.png" width="96" alt="">
+
 # CS Voice Captions
 
 Live captions and translation for Counter-Strike 2 — reads your teammates'

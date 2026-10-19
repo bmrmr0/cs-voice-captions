@@ -9,23 +9,17 @@ import time
 from html import escape as html_escape
 
 from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction, QGuiApplication
+from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QTextEdit, QSystemTrayIcon,
     QMenu, QPushButton,
 )
 
 
-def make_icon(color):
-    pm = QPixmap(64, 64)
-    pm.fill(Qt.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(Qt.NoPen)
-    p.setBrush(QColor(color))
-    p.drawEllipse(8, 8, 48, 48)
-    p.end()
-    return QIcon(pm)
+def make_icon(color=None):
+    """The app icon, with a status dot in `color` when given (the tray)."""
+    import app_icon
+    return app_icon.icon(badge=color)
 
 
 class Bridge(QObject):
@@ -528,6 +522,6 @@ class TrayController:
 
     def notify(self, title, message):
         try:
-            self.tray.showMessage(title, message, make_icon("#7CFC7C"), 4000)
+            self.tray.showMessage(title, message, make_icon(), 4000)
         except Exception:  # noqa: BLE001
             pass

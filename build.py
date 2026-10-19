@@ -68,6 +68,16 @@ def silero_model():
     return path if os.path.isfile(path) else None
 
 
+def make_icon():
+    """(Re)generate assets/icon.ico and return its path."""
+    rc = subprocess.call([sys.executable, os.path.join(ROOT, "tools", "make_icon.py")],
+                         cwd=ROOT)
+    path = os.path.join(ROOT, "assets", "icon.ico")
+    if rc != 0 or not os.path.isfile(path):
+        sys.exit("[build] could not generate the icon")
+    return path
+
+
 def clean(dist="dist"):
     """Remove previous build output. Also the point at which any stale tree
     from another machine (with its paths baked into the .toc files) is gone."""
@@ -107,6 +117,9 @@ def main():
         "--noconfirm", "--clean",
         "--onefile",
         "--name", NAME,
+        # Drawn by app_icon.py, the same code the running app uses, so the
+        # exe's icon and the window/tray icon can't drift apart.
+        "--icon", make_icon(),
         "--distpath", os.path.join(ROOT, args.dist),
         "--console" if args.console else "--windowed",
         # Keep the working directory out of the module search path so the exe

@@ -294,6 +294,8 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("CS Voice Captions")
+    import app_icon
+    app.setWindowIcon(app_icon.icon())     # captions window, settings, taskbar
 
     bridge = Bridge()
     stop_event = threading.Event()

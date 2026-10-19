@@ -91,27 +91,40 @@ def handshake(name=SERVER_NAME, stamp=None, timeout_ms=2000):
 
     Returns its answer -- "show" (it brought its window forward; we should
     exit) or "bye" (we are newer; it is quitting and we take over) -- or
-    None if it couldn't be reached."""
+    None if it couldn't be reached.
+
+    Qt's local socket needs an application object, and Qt allows one per
+    process. If we had to create one, it is shut down again before
+    returning: the app carries on to create its own QApplication after a
+    "bye", and with ours still alive that crashed on startup."""
+    from PySide6.QtCore import QCoreApplication
+    created = None
+    if QCoreApplication.instance() is None:
+        created = QCoreApplication(sys.argv)
     try:
-        from PySide6.QtCore import QCoreApplication
         from PySide6.QtNetwork import QLocalSocket
-        app = QCoreApplication.instance() or QCoreApplication(sys.argv)  # noqa: F841
         sock = QLocalSocket()
-        sock.connectToServer(name)
-        if not sock.waitForConnected(timeout_ms):
-            return None
-        sock.write(f"hello {BUILD_STAMP if stamp is None else stamp}\n".encode())
-        sock.flush()
-        sock.waitForBytesWritten(timeout_ms)
-        answer = None
-        if sock.waitForReadyRead(timeout_ms):
-            answer = bytes(sock.readAll()).decode(errors="replace").strip() or None
-        sock.disconnectFromServer()
-        # A copy from before this handshake existed reads nothing and simply
-        # shows its window; to us that looks like no answer.
-        return answer or "show"
+        try:
+            sock.connectToServer(name)
+            if not sock.waitForConnected(timeout_ms):
+                return None
+            sock.write(f"hello {BUILD_STAMP if stamp is None else stamp}\n".encode())
+            sock.flush()
+            sock.waitForBytesWritten(timeout_ms)
+            answer = None
+            if sock.waitForReadyRead(timeout_ms):
+                answer = bytes(sock.readAll()).decode(errors="replace").strip() or None
+            sock.disconnectFromServer()
+            # A copy from before this handshake existed reads nothing and
+            # simply shows its window; to us that looks like no answer.
+            return answer or "show"
+        finally:
+            del sock
     except Exception:  # noqa: BLE001
         return None
+    finally:
+        if created is not None:
+            created.shutdown()
 
 
 def ask_running_copy_to_show(name=SERVER_NAME, timeout_ms=1500):
