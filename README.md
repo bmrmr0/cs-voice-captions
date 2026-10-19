@@ -260,6 +260,19 @@ which is the fastest way to see why something isn't working.
 
 ---
 
+### Before your first commit
+
+```bash
+git config core.hooksPath tools/githooks
+```
+
+That turns on a check that refuses any commit, or commit message, that
+would publish private data: text pasted from CS2's chat log (other players'
+names and messages — use made-up examples), names from your own CS2 log,
+your machine's paths or name, or anything shaped like a key or token.
+`build.py --release` separately scans the built exe before it can be
+published.
+
 ## Troubleshooting
 
 **Where is the log?** `%LOCALAPPDATA%\CSVoiceCaptions\cs-voice-captions.log`

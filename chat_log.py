@@ -5,8 +5,8 @@ game writes console.log itself when launched with the official `-condebug`
 launch option, and we just tail that text file. No memory reading, no injection.
 
 Chat lines look like:
-    [ALL] Player‎: message text
-    [TEAM] Player‎ [DEAD]: message text
+    [ALL] Player<U+200E>: message text
+    [TEAM] Player<U+200E> [DEAD]: message text
 (names may contain a U+200E left-to-right mark and a " [DEAD]" suffix.)
 """
 import os
@@ -78,7 +78,7 @@ _NAME_DECORATIONS = re.compile(
     re.IGNORECASE)
 
 # Bidi marks CS2 embeds around names (LRM / RLM).
-_BIDI_MARKS = dict.fromkeys(map(ord, "‎‏‪‫‬"), None)
+_BIDI_MARKS = dict.fromkeys(map(ord, "\u200e\u200f\u202a\u202b\u202c"), None)
 
 # The scope tag must open the line (CS2 prefixes a timestamp when the player
 # has con_timestamp on). Anchoring matters: without it, a chat *message* that
@@ -100,8 +100,8 @@ _CHAT_RE = re.compile(
 _SIDE_TAGS = {"CT": "TEAM", "T": "TEAM"}
 
 # A living player's name carries where they are, after a small at-sign:
-# "Player‎﹫CT Start: nice bro".
-_LOCATION_MARK = "﹫"
+# "Player<U+200E><U+FE6B>CT Start: nice bro".
+_LOCATION_MARK = "\ufe6b"
 
 
 def _clean_name(name):
