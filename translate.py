@@ -1,15 +1,15 @@
 """Text translation for CS2 chat.
 
 Backend is chosen by config (`chat.translator`):
-  * "google"   -> deep-translator's free Google endpoint, with MyMemory as a
-                  fallback. In-match chat is public, so this sends nothing
-                  private. (Google is what CSTranslator uses.)
+  * "google"   -> Google's free translation, through two of its unofficial
+                  endpoints, with MyMemory as the last resort. In-match chat
+                  is public, so this sends nothing private.
   * "off"      -> no translation.
 
-Google's free endpoint is unofficial, and Google refuses it outright (HTTP 429
-on every request, however slowly they are sent) for some connections. When
-that happens translations would otherwise just stop, so the chain falls
-through to MyMemory, and only shows the original text when both refuse.
+Google's free endpoints are unofficial and get throttled (HTTP 429), each
+separately and sometimes for days. A throttled endpoint is skipped for ten
+minutes and the next one tried; MyMemory, whose quality is far lower ("выблядок"
+came back as "pancakes"), is used only when every Google endpoint refuses.
 """
 import re
 import time
@@ -102,8 +102,6 @@ class _ChainTranslator:
 
     def __init__(self, target):
         self.target = _lang_code(target)
-        self._google = None
-        self._google_off_until = 0.0
         self._said = {}
 
     def _note(self, key, msg):
@@ -116,27 +114,64 @@ class _ChainTranslator:
             msg = " ".join(str(msg).split())
             print(f"[translate] {msg[:200]}{'…' if len(msg) > 200 else ''}")
 
+    # Google's free translation is reachable through several unofficial
+    # endpoints, and they are throttled separately. The one deep-translator
+    # scrapes (translate.google.com/m) went on answering HTTP 429 for days
+    # while these two answered normally from the same connection -- which is
+    # how CSTranslator, side by side on one machine, kept getting Google's
+    # "bastards" for "выблядок" while this app fell back to MyMemory and
+    # showed "pancakes". Tried in order, each with its own back-off.
+    _GOOGLE_ENDPOINTS = (
+        ("gtx", "https://translate.googleapis.com/translate_a/single",
+         {"client": "gtx", "dt": "t"}),
+        ("dict-chrome-ex", "https://clients5.google.com/translate_a/t",
+         {"client": "dict-chrome-ex"}),
+    )
+    _THROTTLED = (403, 429, 503)
+
+    @staticmethod
+    def _parse_google(data):
+        """Both response shapes: gtx gives [[[chunk, source, ...], ...], ...];
+        dict-chrome-ex gives [[text, lang]] (or just [text])."""
+        if isinstance(data, str):
+            return data
+        if not isinstance(data, list) or not data:
+            return None
+        first = data[0]
+        if isinstance(first, str):
+            return first
+        if not isinstance(first, list) or not first:
+            return None
+        if isinstance(first[0], str):            # dict-chrome-ex
+            return first[0]
+        return "".join(seg[0] for seg in first   # gtx: join the sentence chunks
+                       if isinstance(seg, list) and seg and isinstance(seg[0], str))
+
     def _via_google(self, text):
-        if time.monotonic() < self._google_off_until:
-            return None
-        try:
-            if self._google is None:
-                # Built once and reused: constructing a translator per line
-                # re-does deep-translator's setup on every chat message.
-                from deep_translator import GoogleTranslator
-                self._google = GoogleTranslator(source="auto", target=self.target)
-            return self._google.translate(text)
-        except Exception as e:  # noqa: BLE001
-            self._google = None     # rebuild next time in case the state is bad
-            if "TooManyRequests" in type(e).__name__ or "429" in str(e):
-                self._google_off_until = time.monotonic() + self.GOOGLE_BACKOFF_S
-                self._note("google429",
-                           "Google is refusing translations from this "
-                           "connection (HTTP 429); using MyMemory instead, "
-                           f"retrying Google in {self.GOOGLE_BACKOFF_S // 60} min")
-            else:
-                self._note("google", f"Google translation failed: {e}")
-            return None
+        import requests
+        now = time.monotonic()
+        off = self.__dict__.setdefault("_endpoint_off_until", {})
+        for name, url, params in self._GOOGLE_ENDPOINTS:
+            if now < off.get(name, 0.0):
+                continue
+            try:
+                r = requests.get(url, params={**params, "sl": "auto",
+                                              "tl": self.target, "q": text},
+                                 timeout=6)
+                if r.status_code in self._THROTTLED:
+                    off[name] = now + self.GOOGLE_BACKOFF_S
+                    self._note(f"google-{name}",
+                               f"Google ({name}) is refusing translations "
+                               f"(HTTP {r.status_code}); trying the next service, "
+                               f"retrying it in {self.GOOGLE_BACKOFF_S // 60} min")
+                    continue
+                r.raise_for_status()
+                out = self._parse_google(r.json())
+                if out and out.strip():
+                    return out
+            except Exception as e:  # noqa: BLE001
+                self._note(f"google-{name}", f"Google ({name}) translation failed: {e}")
+        return None
 
     def _via_mymemory(self, text):
         dst = _MYMEMORY_CODES.get(self.target)
