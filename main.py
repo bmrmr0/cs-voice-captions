@@ -115,7 +115,8 @@ import hotkeys as hotkeys_mod                     # noqa: E402
 from audio import SoundcardSource, ProcessSource  # noqa: E402
 from stt import Transcriber                       # noqa: E402
 from transcript import TranscriptWriter           # noqa: E402
-from ui import Bridge, Overlay, History, TrayController  # noqa: E402
+from ui import (Bridge, Overlay, History, TrayController,  # noqa: E402
+                CondebugReminder, should_remind_condebug)
 from settings_window import SettingsWindow        # noqa: E402
 from PySide6.QtCore import QTimer                 # noqa: E402
 from PySide6.QtWidgets import QApplication        # noqa: E402
@@ -417,6 +418,38 @@ def main():
             bridge.status.emit(summary)
     if writer.enabled and writer.path:
         bridge.status.emit(f"Transcript: {writer.path}")
+
+    # Text chat depends on CS2's -condebug launch option, and nothing in the
+    # game tells you it's missing. Check Steam's own record of CS2's launch
+    # options and, if it isn't there, say how to add it -- every start until
+    # it's added (or the user says stop), or once when it can't be told.
+    reminders = []
+
+    def remind_condebug():
+        ccfg = cfg.setdefault("chat", {})
+        if not ccfg.get("enabled", True):
+            return
+        status = chat_log.condebug_status(
+            chat_log.find_console_log(ccfg.get("console_log_path", "")))
+        print("[chat] -condebug in CS2's launch options: "
+              + {True: "yes", False: "no", None: "can't tell"}[status])
+        if not should_remind_condebug(status, ccfg):
+            return
+        dlg = CondebugReminder(missing=status is False)
+
+        def done(_result):
+            ccfg["condebug_tip_seen"] = True
+            if dlg.dont_remind():
+                ccfg["remind_condebug"] = False
+            config_mod.save(cfg)
+
+        dlg.finished.connect(done)
+        reminders.append(dlg)            # keep it alive while it is open
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    QTimer.singleShot(1500, remind_condebug)
 
     # Qt's event loop blocks Python's signal handling, so Ctrl+C in the console
     # is only noticed if the interpreter gets a slice of time now and then.

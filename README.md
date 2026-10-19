@@ -71,9 +71,14 @@ automatically — on a gaming machine that is the part running the game. Set
 ### Run the release
 
 1. Download `CSVoiceCaptions.exe` from [Releases](../../releases).
-2. Run it. That's the whole install — one file, nothing beside it. It lives in
-   the system tray.
-3. First launch downloads the speech model and compiles it for your hardware.
+2. **Add `-condebug` to CS2's launch options** — without it there is no text
+   chat. In Steam, right-click Counter-Strike 2 → Properties… → General →
+   Launch Options. It makes CS2 write its chat to a log file, which is how the
+   app reads it; it's Valve's own option and touches nothing in the game. The
+   app checks for it on start and reminds you if it's missing.
+3. Run the exe. That's the whole install — one file, nothing beside it. It
+   lives in the system tray.
+4. First launch downloads the speech model and compiles it for your hardware.
    Expect a couple of minutes; every launch after that is a few seconds.
 
 Everything the app needs at runtime — the model, your settings, the compiled

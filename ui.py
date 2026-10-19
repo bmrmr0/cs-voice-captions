@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, QObject, Signal, QTimer, QPoint
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QTextEdit, QSystemTrayIcon,
-    QMenu, QPushButton,
+    QMenu, QPushButton, QDialog, QCheckBox, QApplication,
 )
 
 
@@ -526,3 +526,104 @@ class TrayController:
             self.tray.showMessage(title, message, make_icon(), 4000)
         except Exception:  # noqa: BLE001
             pass
+
+
+def should_remind_condebug(status, chat_cfg):
+    """Whether to show the -condebug reminder at startup. `status` is
+    chat_log.condebug_status(): True (set), False (CS2's launch options
+    found without it), None (can't tell)."""
+    if status is True:
+        return False
+    if status is False:
+        return bool(chat_cfg.get("remind_condebug", True))
+    return not chat_cfg.get("condebug_tip_seen", False)   # unknown: first start only
+
+
+class CondebugReminder(QDialog):
+    """How to turn on text chat: CS2 only writes the log the app reads when
+    it is started with -condebug, and nothing in the game says so."""
+
+    _STYLE = """
+    QDialog { background:#121417; }
+    QWidget { color:#e8e8e8; font-family:'Segoe UI', sans-serif; font-size:13px; }
+    QLabel#Title { font-size:16px; font-weight:600; }
+    QLabel#Hint { color:#8a929c; font-size:12px; }
+    QLabel#Code { background:#1b1f25; border:1px solid #353b45; border-radius:6px;
+                  padding:6px 12px; font-family:Consolas, monospace; font-size:15px;
+                  color:#4cd07d; }
+    QPushButton { background:#23272e; border:1px solid #353b45; border-radius:6px;
+                  padding:5px 14px; }
+    QPushButton:hover { background:#2d333c; }
+    QPushButton#Primary { background:#2f6fd6; border-color:#2f6fd6; }
+    QCheckBox::indicator { width:14px; height:14px; border:1px solid #4a525e;
+                           border-radius:3px; background:#1b1f25; }
+    QCheckBox::indicator:checked { background:#3d8bfd; border-color:#3d8bfd; }
+    """
+
+    def __init__(self, missing=False, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("CS Voice Captions \u2014 text chat")
+        self.setStyleSheet(self._STYLE)
+        self.setMinimumWidth(460)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 16)
+        lay.setSpacing(10)
+
+        title = QLabel("Turn on text chat with -condebug")
+        title.setObjectName("Title")
+        lay.addWidget(title)
+        lead = ("CS2's launch options don't include <b>-condebug</b>, so text chat "
+                "won't appear." if missing else
+                "Text chat needs one launch option in Steam, <b>-condebug</b>.")
+        body = QLabel(
+            f"{lead}<br><br>In Steam, right-click <b>Counter-Strike 2</b> \u2192 "
+            "<b>Properties\u2026</b> \u2192 <b>General</b>, and add this to "
+            "<b>Launch Options</b>:")
+        body.setWordWrap(True)
+        body.setTextFormat(Qt.RichText)
+        lay.addWidget(body)
+
+        row = QHBoxLayout()
+        code = QLabel("-condebug")
+        code.setObjectName("Code")
+        code.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        row.addWidget(code)
+        self._copy = QPushButton("Copy")
+        self._copy.clicked.connect(self._copy_option)
+        row.addWidget(self._copy)
+        row.addStretch(1)
+        lay.addLayout(row)
+
+        why = QLabel(
+            "Then restart CS2. It makes the game write its chat to a log file, "
+            "which is how the app reads it \u2014 Valve's own option, nothing "
+            "touches the game. Voice captions work without it.")
+        why.setObjectName("Hint")
+        why.setWordWrap(True)
+        lay.addWidget(why)
+
+        self._never = None
+        if missing:
+            note = QLabel("Already added it? Steam saves launch options when it "
+                          "closes, so this can show once more.")
+            note.setObjectName("Hint")
+            note.setWordWrap(True)
+            lay.addWidget(note)
+            self._never = QCheckBox("Don't remind me again")
+            lay.addWidget(self._never)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        ok = QPushButton("OK")
+        ok.setObjectName("Primary")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        buttons.addWidget(ok)
+        lay.addLayout(buttons)
+
+    def _copy_option(self):
+        QApplication.clipboard().setText("-condebug")
+        self._copy.setText("Copied")
+
+    def dont_remind(self):
+        return bool(self._never and self._never.isChecked())

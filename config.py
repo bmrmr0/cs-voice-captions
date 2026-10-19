@@ -35,6 +35,10 @@ DEFAULTS = {
     "chat": {
         "enabled": True,
         "show": True,                  # show chat lines (toggle in the tray / settings)
+        # The startup reminder about the -condebug launch option: shown while
+        # CS2's launch options lack it, unless turned off from the reminder.
+        "remind_condebug": True,
+        "condebug_tip_seen": False,
         "console_log_path": "",        # blank = auto-detect via Steam
         "scopes": ["ALL", "TEAM"],     # which chat channels to show
         "translate": True,             # translate foreign chat

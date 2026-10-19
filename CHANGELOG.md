@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Reminder about `-condebug`.** Text chat only works when CS2 is started
+  with the `-condebug` launch option, and nothing in the game says so. The
+  app now reads CS2's launch options from Steam on start and, if the option
+  is missing, explains how to add it (with a button that copies it). It
+  keeps reminding until it's added or you tick "Don't remind me again"; if
+  it can't tell, it shows once.
+
 ## 1.0.0
 
 First public release. A single portable `CSVoiceCaptions.exe` — nothing to

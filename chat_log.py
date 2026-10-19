@@ -72,6 +72,81 @@ def find_console_log(override=""):
     return None
 
 
+
+CS2_APP_ID = "730"
+_VDF_TOKEN = re.compile(r'"((?:[^"\\]|\\.)*)"|([{}])')
+
+
+def _parse_vdf(text):
+    """Steam's KeyValues text format, as nested dicts with lower-cased keys
+    (Steam itself has written both "apps" and "Apps" over the years)."""
+    root, stack, cur, key = {}, [], None, None
+    cur = root
+    for m in _VDF_TOKEN.finditer(text):
+        word, brace = m.group(1), m.group(2)
+        if brace == "{":
+            child = {}
+            if key is not None:
+                cur[key.lower()] = child
+            stack.append(cur)
+            cur, key = child, None
+        elif brace == "}":
+            cur, key = (stack.pop() if stack else root), None
+        elif key is None:
+            key = word
+        else:
+            cur[key.lower()] = word
+            key = None
+    return root
+
+
+def _vdf_get(node, *path):
+    for part in path:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(part.lower())
+    return node
+
+
+def condebug_status(console_log=None, steam=None):
+    """Whether CS2 is set to write console.log, which text chat depends on.
+
+    True if its Steam launch options include -condebug (or CS2 wrote the log
+    in the last ten minutes, which proves it); False if CS2's launch options
+    were found without it; None if it can't be told -- no Steam, or no
+    account here has run CS2. Only the launch-option string is read.
+    """
+    import glob
+    log = console_log or find_console_log("")
+    try:
+        if log and time.time() - os.path.getmtime(log) < 600:
+            # Steam often writes launch options to disk only when it exits,
+            # so a just-added -condebug can be missing from the file while
+            # already working. A freshly written log settles it.
+            return True
+    except OSError:
+        pass
+    steam = steam or _steam_path()
+    if not steam:
+        return None
+    seen_cs2 = False
+    pattern = os.path.join(steam, "userdata", "*", "config", "localconfig.vdf")
+    for cfg in glob.glob(pattern):
+        try:
+            with open(cfg, "r", encoding="utf-8", errors="replace") as f:
+                tree = _parse_vdf(f.read())
+        except OSError:
+            continue
+        app = _vdf_get(tree, "UserLocalConfigStore", "Software", "Valve", "Steam",
+                       "apps", CS2_APP_ID)
+        if not isinstance(app, dict):
+            continue                         # this account never ran CS2
+        seen_cs2 = True
+        options = app.get("launchoptions", "")
+        if re.search(r"(?:^|\s)[-+]condebug(?:\s|$)", options, re.IGNORECASE):
+            return True
+    return False if seen_cs2 else None
+
 # Decorations CS2 hangs off the player name: alive/dead state, team, spectator.
 _NAME_DECORATIONS = re.compile(
     r"\s*(\[DEAD\]|\*DEAD\*|\(Counter-Terrorist\)|\(Terrorist\)|\*SPEC\*)\s*",
