@@ -120,7 +120,8 @@ SOURCES = {
 }
 
 
-def build_audio_sources(cfg, out_queue, stop_event, paused_event, status_cb=None):
+def build_audio_sources(cfg, out_queue, stop_event, paused_event, status_cb=None,
+                        connection_cb=None):
     sources = []
     cap = cfg.get("capture", {})
     if cfg["sources"].get("teammates", False):
@@ -130,11 +131,12 @@ def build_audio_sources(cfg, out_queue, stop_event, paused_event, status_cb=None
                                          stop_event, paused_event,
                                          cap.get("cs2_process_name", "cs2.exe"),
                                          cap.get("fallback_to_loopback", True),
-                                         status_cb))
+                                         status_cb, connection_cb))
         else:
             sources.append(SoundcardSource("teammates", out_queue, cfg["vad"],
                                            stop_event, paused_event,
-                                           kind="loopback", status_cb=status_cb))
+                                           kind="loopback", status_cb=status_cb,
+                                           connection_cb=connection_cb))
     if cfg["sources"].get("my_mic", False):
         sources.append(SoundcardSource("my_mic", out_queue, cfg["vad"],
                                        stop_event, paused_event,
@@ -342,6 +344,7 @@ def main():
     bridge.toggle_pause.connect(tray.toggle_pause)
     bridge.toggle_overlay.connect(tray.toggle_overlay)
     bridge.show_window.connect(tray.show_window)
+    bridge.connection.connect(tray.set_connection)
     # A later launch of the exe asks for the window instead of starting a
     # second copy. Kept referenced so the server lives as long as the app.
     import single_instance
@@ -358,7 +361,7 @@ def main():
 
     utt_queue = queue.Queue(maxsize=50)
     audio_sources = build_audio_sources(cfg, utt_queue, stop_event, paused_event,
-                                        bridge.status.emit)
+                                        bridge.status.emit, bridge.connection.emit)
     if not audio_sources:
         bridge.status.emit("No audio sources enabled — check config.json")
     for s in audio_sources:

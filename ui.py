@@ -40,6 +40,26 @@ class Bridge(QObject):
     toggle_pause = Signal()
     toggle_overlay = Signal()
     show_window = Signal()
+    connection = Signal(str, str)     # capture state, detail -- see audio.py
+
+
+# (colour, short text) for each capture state. Paused overrides all of them.
+_CONNECTION_LOOK = {
+    "connected": ("#4cd07d", "Connected to CS2"),
+    "waiting": ("#e0a43a", "Waiting for CS2…"),
+    "desktop": ("#e0a43a", "Capturing whole desktop"),
+    "stopped": ("#e05a5a", "Not capturing"),
+    "starting": ("#8a929c", "Starting…"),
+}
+
+
+def connection_look(state, detail="", paused=False):
+    if paused:
+        return "#8a929c", "Paused"
+    color, text = _CONNECTION_LOOK.get(state, _CONNECTION_LOOK["starting"])
+    if state == "waiting" and detail == "reconnecting":
+        text = "Reconnecting to CS2…"
+    return color, text
 
 
 def _chat_tag(r):
@@ -304,6 +324,11 @@ class History(QWidget):
         bar = QHBoxLayout()
         bar.setContentsMargins(8, 6, 8, 6)
         bar.setSpacing(6)
+        self._conn = QLabel()
+        self._conn.setStyleSheet("QLabel { color:#c9cdd3; font-size:13px;"
+                                 " font-family:'Segoe UI', sans-serif; padding-left:2px; }")
+        bar.addWidget(self._conn)
+        self.set_connection_look(*connection_look("starting"))
         bar.addStretch(1)
         style = ("QPushButton { background:#23272e; color:#e8e8e8; border:1px solid #353b45;"
                  " border-radius:6px; padding:4px 12px; font-size:13px; }"
@@ -322,6 +347,11 @@ class History(QWidget):
             bar.addWidget(b)
         layout.addLayout(bar)
         layout.addWidget(self.view)
+
+    def set_connection_look(self, color, text, tooltip=""):
+        self._conn.setText(f"<span style='color:{color};font-size:16px'>&#9679;</span>"
+                           f"&nbsp;{html_escape(text)}")
+        self._conn.setToolTip(tooltip)
 
     def clear(self):
         self.view.clear()
@@ -372,6 +402,7 @@ class TrayController:
         self._on_overlay_toggle = on_overlay_toggle
         self._on_quit = on_quit
         self._chat_cfg = chat_cfg if chat_cfg is not None else {}
+        self._connection = ("starting", "")
         self._on_chat_toggle = on_chat_toggle
 
         self.tray = QSystemTrayIcon(make_icon("#7CFC7C"))
@@ -446,6 +477,12 @@ class TrayController:
         else:
             self._sync_labels()
 
+    def set_connection(self, state, detail=""):
+        """Slot for Bridge.connection: the capture attached, lost CS2, or
+        fell back to the whole desktop."""
+        self._connection = (state, detail)
+        self._sync_labels()
+
     def toggle_chat(self):
         self._chat_cfg["show"] = not self._chat_cfg.get("show", True)
         self._sync_labels()
@@ -472,8 +509,16 @@ class TrayController:
     def _sync_labels(self):
         paused = self.paused_event.is_set()
         self.act_pause.setText("Resume listening" if paused else "Pause listening")
-        self.tray.setIcon(make_icon("#888888" if paused else "#7CFC7C"))
-        self.tray.setToolTip("CS Voice Captions" + (" (paused)" if paused else ""))
+        state, detail = self._connection
+        color, text = connection_look(state, detail, paused)
+        tip = ""
+        if state == "desktop" and not paused:
+            tip = "Not CS2-only: other programs' audio may be captioned too."
+        elif state == "connected" and detail and not paused:
+            tip = f"Capturing CS2's audio ({detail})."
+        self.tray.setIcon(make_icon(color))
+        self.tray.setToolTip(f"CS Voice Captions — {text}")
+        self.history.set_connection_look(color, text, tip)
         self.act_overlay.setText("Hide game overlay" if self.overlay_visible
                                  else "Show game overlay")
         self.act_lock.setText("Lock overlay (click-through)" if not self.overlay.locked

@@ -398,14 +398,26 @@ def _soundcard_frames(kind, stop_event, log):
 
 class _BaseSource(threading.Thread):
     def __init__(self, source_key, out_queue, vad_cfg, stop_event, paused_event,
-                 status_cb=None):
+                 status_cb=None, connection_cb=None):
         super().__init__(daemon=True, name=f"audio-{source_key}")
+        # Called with (state, detail) as the capture attaches and detaches:
+        # "connected", "waiting", "desktop" (whole-desktop fallback) or
+        # "stopped". Drives the connection indicator; the log text alone
+        # left the user unable to tell whether CS2 was being heard at all.
+        self.connection_cb = connection_cb
         self.source_key = source_key
         self.out = out_queue
         self.vad_cfg = vad_cfg
         self.stop_event = stop_event
         self.paused_event = paused_event
         self.status_cb = status_cb
+
+    def _set_connection(self, state, detail=""):
+        if self.connection_cb:
+            try:
+                self.connection_cb(state, detail)
+            except Exception:  # noqa: BLE001
+                pass
 
     def _log(self, msg, to_ui=False):
         print(f"[audio:{self.source_key}] {msg}")
@@ -508,16 +520,19 @@ class _BaseSource(threading.Thread):
                         pass
         if not self.stop_event.is_set():
             self._log("capture stopped, no more audio from this source", to_ui=True)
+            self._set_connection("stopped")
 
 
 class SoundcardSource(_BaseSource):
     def __init__(self, source_key, out_queue, vad_cfg, stop_event, paused_event,
-                 kind, status_cb=None):
+                 kind, status_cb=None, connection_cb=None):
         super().__init__(source_key, out_queue, vad_cfg, stop_event, paused_event,
-                         status_cb)
+                         status_cb, connection_cb)
         self.kind = kind   # "mic" or "loopback"
 
     def frames(self):
+        if self.kind == "loopback":
+            self._set_connection("desktop", "whole-desktop audio")
         yield from _soundcard_frames(self.kind, self.stop_event, self._log)
 
 
@@ -525,9 +540,10 @@ class ProcessSource(_BaseSource):
     """CS2-only audio via per-process WASAPI loopback (proc-tap)."""
 
     def __init__(self, source_key, out_queue, vad_cfg, stop_event, paused_event,
-                 process_name, fallback_to_loopback=True, status_cb=None):
+                 process_name, fallback_to_loopback=True, status_cb=None,
+                 connection_cb=None):
         super().__init__(source_key, out_queue, vad_cfg, stop_event, paused_event,
-                         status_cb)
+                         status_cb, connection_cb)
         self.process_name = process_name
         self.fallback_to_loopback = fallback_to_loopback
 
@@ -557,9 +573,11 @@ class ProcessSource(_BaseSource):
         if not self.fallback_to_loopback:
             self._log(f"{reason}; set capture.teammates_backend to 'loopback' "
                       "in config.json", to_ui=True)
+            self._set_connection("stopped", reason)
             return
         self._log(f"{reason} - falling back to desktop loopback "
                   "(other apps' audio may be captioned too)", to_ui=True)
+        self._set_connection("desktop", "CS2-only capture unavailable")
         yield from _soundcard_frames("loopback", self.stop_event, self._log)
 
     def frames(self):
@@ -576,6 +594,7 @@ class ProcessSource(_BaseSource):
             if pid is None:
                 if not announced:
                     self._log(f"waiting for {self.process_name} to start...")
+                    self._set_connection("waiting")
                     announced = True
                 time.sleep(2.0)
                 continue
@@ -595,6 +614,7 @@ class ProcessSource(_BaseSource):
                 resampler = _Resampler(src_rate)
                 framer = _Framer()
                 failures = 0
+                self._set_connection("connected", f"pid {pid}")
                 self._log(f"capturing {self.process_name} (pid {pid}) at "
                           f"{src_rate} Hz / {channels}ch, game audio only")
                 last_check = time.monotonic()
@@ -639,6 +659,7 @@ class ProcessSource(_BaseSource):
                         f"per-process capture keeps failing ({e})")
                     return
                 self._log(f"capture error: {e}; retrying...")
+                self._set_connection("waiting", "reconnecting")
                 time.sleep(2.0)
             finally:
                 self._close(cap)

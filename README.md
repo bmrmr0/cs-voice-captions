@@ -119,7 +119,18 @@ mode.
 
 ## Using it
 
-The tray icon is the control panel — green when listening, grey when paused:
+The tray icon is the control panel. Its colour, and the indicator at the top
+of the captions window, say whether CS2 is actually being heard:
+
+| | Meaning |
+| --- | --- |
+| 🟢 **Connected to CS2** | Capturing CS2's audio. |
+| 🟠 **Waiting for CS2…** | CS2 isn't running (or just restarted); the app attaches on its own when it starts. |
+| 🟠 **Capturing whole desktop** | CS2-only capture failed, so every program's audio is captioned. |
+| 🔴 **Not capturing** | Capture stopped; see the log. |
+| ⚪ **Paused** | You paused it. |
+
+The tray menu:
 
 - **Pause / resume listening**
 - **Show / hide game overlay**
