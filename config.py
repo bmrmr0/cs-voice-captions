@@ -63,9 +63,9 @@ DEFAULTS = {
 
     # Speech-to-text (Whisper via OpenVINO).
     "stt": {
-        # "auto" prefers the NPU, then the CPU. The GPU is never picked
-        # automatically -- on a gaming machine that is what runs the game.
-        # Force one with "NPU", "CPU", "GPU", or an exact name like "GPU.1".
+        # "auto" prefers the NPU, then the CPU. Force one with "NPU" or
+        # "CPU". The GPU isn't supported: on a gaming machine it is busy
+        # running the game, so the exe doesn't even ship its plugin.
         "device": "auto",
         # tiny | base | small | medium | large-v3-turbo, a HuggingFace repo id,
         # or a path to an OpenVINO model folder. Downloaded once on first run

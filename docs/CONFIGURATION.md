@@ -81,7 +81,7 @@ window.
 | Key | Default | What it does | |
 | --- | --- | --- | --- |
 | `stt.model` | `"small"` | `tiny`, `base`, `small`, `medium`. Bigger is more accurate and slower, and downloads once. `medium` is **Translation quality: Better** in Settings: on 21 Russian test clips it translated 8 better and 4 worse than `small`, at about 0.85 s a clip instead of 0.3 s on the NPU, after a 1.5 GB download. (`large-v3-turbo` is faster but translates poorly.) Applies at the next start. | Settings |
-| `stt.device` | `"auto"` | NPU if there is one, else the CPU. Force it with `"NPU"`, `"CPU"` or `"GPU"`. The GPU is never chosen automatically, because it's busy running the game. | |
+| `stt.device` | `"auto"` | NPU if there is one, else the CPU. Force it with `"NPU"` or `"CPU"`. The GPU is never used, because it's busy running the game. | |
 | `stt.beam_size` | `1` | Raise to `5` for slightly better accuracy at the cost of speed. | |
 
 ### Overlay, window and hotkeys

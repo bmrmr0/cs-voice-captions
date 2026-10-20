@@ -40,7 +40,7 @@ HIDDEN_IMPORTS = [
     "huggingface_hub",
 ]
 
-# OpenVINO loads its core, its CPU/GPU/NPU plugins and the tokenizers
+# OpenVINO loads its core, its CPU/NPU plugins and the tokenizers
 # extension as loose DLLs by name at runtime. PyInstaller's static analysis
 # cannot see any of that, so collect these packages wholesale.
 COLLECT_ALL = ["openvino", "openvino_genai", "openvino_tokenizers"]
@@ -54,6 +54,35 @@ EXCLUDES = [
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore",
     "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtMultimedia",
     "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtPdf",
+    # Silero runs on OpenVINO; the silero_vad package (and the onnxruntime it
+    # imports) is only where the build finds the model file.
+    "silero_vad", "onnxruntime",
+    # An optional accelerator for the one-time model download; without it
+    # huggingface_hub downloads over plain HTTPS.
+    "hf_xet",
+]
+
+# Files that the packages above bring along but the app never loads, dropped
+# after analysis (paths inside the bundle, matched as regexes). About 45 MB.
+DROP_FILES = [
+    # The GPU is never used: the game is running on it. Its plugin and its
+    # kernel cache, plus the import library only a C++ linker reads.
+    r"^openvino/libs/openvino_intel_gpu_plugin\.dll$",
+    r"^openvino/libs/cache\.json$",
+    r"^openvino/libs/openvino\.lib$",
+    # Importers for model formats the app never reads. It loads OpenVINO IR
+    # (Whisper) and ONNX (Silero), so the ir and onnx frontends stay.
+    r"^openvino/libs/openvino_(tensorflow|tensorflow_lite|pytorch|paddle|jax)_frontend\.dll$",
+    r"^openvino/frontend/(tensorflow|pytorch|paddle|jax)/",
+    # Qt pieces for QML, Quick, PDF, OpenGL software rendering and the
+    # on-screen keyboard; the app is plain widgets.
+    r"^PySide6/opengl32sw\.dll$",
+    r"^PySide6/Qt6(Pdf|Qml\w*|Quick\w*|VirtualKeyboard)\.dll$",
+    r"^PySide6/plugins/(platforminputcontexts|qmltooling|generic|networkinformation)/",
+    r"^PySide6/plugins/imageformats/q(pdf|svg)\.dll$",
+    r"^PySide6/plugins/platforms/q(direct2d|minimal|offscreen)\.dll$",
+    # Qt's own translations of its dialogs; the app's text is English.
+    r"^PySide6/translations/",
 ]
 
 
@@ -110,6 +139,27 @@ def version_file():
     return path, __version__
 
 
+def add_file_filter(spec):
+    """Insert the DROP_FILES filter into the spec, after the analysis."""
+    with open(spec, encoding="utf-8") as f:
+        text = f.read()
+    anchor = "pyz = PYZ("
+    if anchor not in text:
+        sys.exit("[build] unexpected spec layout; cannot apply DROP_FILES")
+    block = f"""
+import re as _re
+_drop = _re.compile("|".join({DROP_FILES!r}), _re.IGNORECASE)
+def _keep(entry):
+    return not _drop.search(entry[0].replace("\\\\", "/"))
+_dropped = [e for e in a.binaries + a.datas if not _keep(e)]
+a.binaries = [e for e in a.binaries if _keep(e)]
+a.datas = [e for e in a.datas if _keep(e)]
+print(f"[build] dropped {{len(_dropped)}} unused files")
+"""
+    with open(spec, "w", encoding="utf-8") as f:
+        f.write(text.replace(anchor, block + anchor, 1))
+
+
 def clean(dist="dist"):
     """Remove previous build output. Also the point at which any stale tree
     from another machine (with its paths baked into the .toc files) is gone."""
@@ -151,16 +201,18 @@ def main():
         clean(args.dist)
     ver_file, version = version_file()
 
+    # Written as a spec file first, so DROP_FILES can be applied between
+    # PyInstaller's analysis and the bundling; the command line can only
+    # exclude whole Python modules.
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--noconfirm", "--clean",
+        sys.executable, "-m", "PyInstaller.utils.cliutils.makespec",
+        "--specpath", ROOT,
         "--onefile",
         "--name", NAME,
         # Drawn by app_icon.py, the same code the running app uses, so the
         # exe's icon and the window/tray icon can't drift apart.
         "--icon", make_icon(),
         "--version-file", ver_file,
-        "--distpath", os.path.join(ROOT, args.dist),
         "--console" if args.console else "--windowed",
         # Keep the working directory out of the module search path so the exe
         # can never import a stray .py sitting next to it.
@@ -192,6 +244,13 @@ def main():
 
     print("[build] " + " ".join(cmd))
     rc = subprocess.call(cmd, cwd=ROOT)
+    if rc != 0:
+        sys.exit(f"[build] writing the spec failed with exit code {rc}")
+    spec = os.path.join(ROOT, f"{NAME}.spec")
+    add_file_filter(spec)
+
+    rc = subprocess.call([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
+                          "--distpath", os.path.join(ROOT, args.dist), spec], cwd=ROOT)
     if rc != 0:
         sys.exit(f"[build] PyInstaller failed with exit code {rc}")
 

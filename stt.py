@@ -6,9 +6,9 @@ transcription without touching the GPU at all, so captions cost the game
 nothing. On a Core Ultra the NPU is also simply faster than the CPU at this --
 roughly 5x on the `small` model.
 
-Device order is NPU, then CPU. The GPU is deliberately *not* chosen
-automatically: on a gaming machine that is the part running Counter-Strike.
-Set `stt.device` to "GPU" to override.
+Device order is NPU, then CPU. The GPU is never used: on a gaming machine
+that is the part running Counter-Strike. The exe doesn't ship OpenVINO's GPU
+plugin at all.
 
 Translation is Whisper's own translate task, which turns speech in any language
 directly into English in a single pass. It is entirely local -- no server, no
@@ -24,7 +24,7 @@ import numpy as np
 def _add_openvino_dll_dirs():
     """Make the bundled OpenVINO runtime loadable inside a frozen build.
 
-    OpenVINO ships its core, its device plugins (CPU/GPU/NPU) and the
+    OpenVINO ships its core, its device plugins (CPU/NPU) and the
     tokenizers extension as loose DLLs that get loaded by name at runtime, not
     linked at import. In a PyInstaller bundle nothing puts their folders on the
     DLL search path, so the NPU plugin is invisible and openvino_tokenizers.dll
@@ -216,9 +216,9 @@ class Transcriber:
     def _pick_device(self):
         """NPU first (it leaves the GPU free for the game), then CPU.
 
-        The GPU is never picked automatically -- on a gaming machine that is
-        the device running Counter-Strike, and stealing it would defeat the
-        point of the whole design. `stt.device` overrides.
+        Never the GPU: on a gaming machine that is the device running
+        Counter-Strike, and stealing it would defeat the point of the whole
+        design. `stt.device` can force "NPU" or "CPU".
         """
         import openvino as ov
 
@@ -230,7 +230,7 @@ class Transcriber:
             return "CPU", ["CPU"]
 
         if want.lower() != "auto":
-            # Honour an exact name ("GPU.1") or a family ("GPU").
+            # Honour an exact name ("NPU.0") or a family ("NPU").
             for dev in available:
                 if dev.lower() == want.lower() or dev.lower().startswith(want.lower() + "."):
                     return dev, available

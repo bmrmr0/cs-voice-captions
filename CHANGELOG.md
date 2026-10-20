@@ -22,6 +22,11 @@
 - **Overlay position presets** (top or bottom; left, centre or right). At the
   bottom of the screen the overlay grows upwards as captions arrive.
 - An issue form for suggesting slang dictionary entries.
+- **Smaller exe: 145 MB instead of 200 MB**, and less to unpack on every
+  start. Dropped what the app never loads: OpenVINO's GPU plugin, importers
+  for model formats it doesn't read, onnxruntime, Qt's QML/Quick/PDF parts
+  and its translations. The GPU can no longer be chosen with `stt.device`;
+  it was never used by default, since it's busy running the game.
 - **A lone slang word gets its meaning.** A message that is nothing but one
   dictionary term now shows the term's meaning as the caption. Before, the
   translator often just transliterated an insult, and the meaning was only
