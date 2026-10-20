@@ -21,6 +21,9 @@ audio and the log file CS2 writes itself, and never touches the game process.
   add your own words.
 - **Junk filtered out:** gunfire, music kits, CS2's own radio lines and
   repeated chat spam don't become captions.
+- **Reply in their language.** Type English, and the translation is copied
+  for you to paste into the game chat. Nothing is typed into the game.
+- **Mute a player's chat** with a right-click on their name.
 - **On-game overlay**, a tray icon that shows whether CS2 is being heard,
   global hotkeys, and a settings window that explains every option.
 
@@ -78,15 +81,19 @@ show whether CS2 is being heard:
 <br>
 
 Right-click the tray icon to pause, show or hide the overlay, unlock the
-overlay to drag it into place, show or hide text chat, and open **Settings**
-(also a button in the captions window). Hover over any setting for what it
-does. Changes apply immediately.
+overlay to drag it into place, show or hide text chat, reply in chat, and
+open **Settings** (also a button in the captions window). Hover over any
+setting for what it does. Changes apply immediately.
+
+Right-click a player's name in the captions window to mute their chat;
+unmute them in Settings.
 
 | Hotkey | Action |
 | --- | --- |
 | `Ctrl+Alt+P` | Pause / resume |
 | `Ctrl+Alt+O` | Show / hide the overlay |
 | `Ctrl+Alt+C` | Bring up the captions window |
+| `Ctrl+Alt+R` | Reply in chat: type English, get the translation on the clipboard |
 
 Everything else, including rebinding the hotkeys, is in the
 [configuration guide](docs/CONFIGURATION.md).
@@ -105,7 +112,10 @@ Voice chat is turned into text on your PC and never sent anywhere, and nothing t
 - **Voice chat is transcribed and translated locally**, on your NPU or CPU. The audio is never uploaded.
 - **Text chat is sent to Google Translate** to be translated (MyMemory if
   Google is unavailable). In-match chat is public; turn translation off in
-  Settings if you'd rather it wasn't sent anywhere.
+  Settings if you'd rather it wasn't sent anywhere. What you type into the
+  reply helper goes the same way.
+- **On start, the app asks GitHub** whether a newer version is out. Nothing
+  is downloaded; turn it off in Settings.
 - **Only Windows' audio APIs** (the same ones OBS and Discord use) and the log
   CS2 writes with Valve's own `-condebug` option. No memory reads, no
   injection, no input sent to the game, no driver.

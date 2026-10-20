@@ -1,0 +1,66 @@
+name: Slang or swear word
+description: A word or phrase that gets translated wrong, for the built-in slang dictionary.
+title: "Slang: "
+labels: ["slang"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Machine translation gets gaming slang wrong (`есть!` is "Got him!", not "Yes").
+        Each suggestion here can become an entry in [slang.json](https://github.com/bmrmr0/cs-voice-captions/blob/main/slang.json).
+
+        **Please don't paste screenshots, logs or player names.** Write the word and an example
+        sentence of your own instead.
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - Russian
+        - Ukrainian
+        - Polish
+        - Turkish
+        - German
+        - Spanish
+        - Portuguese
+        - French
+        - Any (transliteration or shorthand, like "gg" or "vh")
+        - Other (say which below)
+    validations:
+      required: true
+  - type: input
+    id: word
+    attributes:
+      label: Word or phrase
+      description: As it's typed or said. Add a * for "any ending", like петух*.
+      placeholder: есть
+    validations:
+      required: true
+  - type: input
+    id: meaning
+    attributes:
+      label: What it means in a match
+      placeholder: Got him!
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: How is it used?
+      options:
+        - On its own, as a whole message or callout (a phrase)
+        - Inside sentences; explain it in a note under the caption (a term)
+        - Inside sentences, and it has a clean one-word English equivalent (swap it before translating)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: now
+    attributes:
+      label: What the translation says now (optional)
+      placeholder: "Yes"
+  - type: textarea
+    id: example
+    attributes:
+      label: Example sentence (optional)
+      description: Make one up. Please don't copy real chat.

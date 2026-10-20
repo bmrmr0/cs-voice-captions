@@ -7,7 +7,21 @@
   app now reads CS2's launch options from Steam on start and, if the option
   is missing, explains how to add it (with a button that copies it). It
   keeps reminding until it's added or you tick "Don't remind me again"; if
-  it can't tell, it shows once.
+  it can't tell, it shows once. It checks the Steam account you're signed
+  in with, not every account that has used the PC.
+- **Reply in chat** (`Ctrl+Alt+R`, or the tray menu). Type English, pick the
+  language, press Enter: the translation is copied to the clipboard to paste
+  into the game chat. Nothing is typed into the game for you.
+- **Mute a player.** Right-click their name in the captions window to hide
+  their chat; unmute them in Settings.
+- **New version notice.** On start the app checks GitHub's latest release
+  and, if it's newer, says so in the tray with a link. Nothing is downloaded.
+  Can be turned off in Settings.
+- **Start with Windows**, in Settings.
+- **Save transcripts** is now in Settings, and starts or stops at once.
+- **Overlay position presets** (top or bottom; left, centre or right). At the
+  bottom of the screen the overlay grows upwards as captions arrive.
+- An issue form for suggesting slang dictionary entries.
 
 ## 1.0.0
 

@@ -51,6 +51,8 @@ window.
 | `chat.console_log_path` | `""` | Full path to CS2's `console.log`, if the app can't find your Steam library. It's normally `…\steamapps\common\Counter-Strike Global Offensive\game\csgo\console.log`. | |
 | `chat.remind_condebug` | `true` | Remind on start when CS2's launch options lack `-condebug`. "Don't remind me again" sets it to `false`. | |
 | `chat.enabled` | `true` | Read text chat at all. | |
+| `chat.muted` | `[]` | Players whose chat is hidden, by name. Right-click a name in the captions window to add one. | Settings (unmute) |
+| `reply.language` | `"ru"` | The language the reply helper translates into. Remembered from its window. | |
 
 ### Voice detection
 
@@ -92,11 +94,13 @@ window.
 | `overlay.max_lines` | `5` | Captions shown at once. | Settings |
 | `overlay.line_ttl_s` | `12` | Seconds each caption stays. | Settings |
 | `overlay.enabled` | `false` | Show the overlay on start. Remembered from the tray menu. | |
+| `overlay.position` | `"custom"` | `"custom"` (where you dragged it), or `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` on the main screen. At the bottom it grows upwards. | Settings |
 | `overlay.x`, `overlay.y` | `40` | Position. Set by dragging the unlocked overlay. | |
 | `history.max_lines` | `500` | Lines kept in the captions window. | |
 | `hotkeys.toggle_pause` | `"ctrl+alt+p"` | Pause / resume. | |
 | `hotkeys.toggle_overlay` | `"ctrl+alt+o"` | Show / hide the overlay. | |
 | `hotkeys.show_window` | `"ctrl+alt+c"` | Bring up the captions window. | |
+| `hotkeys.reply` | `"ctrl+alt+r"` | Open the reply helper. | |
 | `hotkeys.enabled` | `true` | Register hotkeys at all. | |
 
 A hotkey needs at least one modifier (`ctrl`, `alt`, `shift`, `win`) plus a
@@ -105,10 +109,22 @@ combination, the app says so in the log and carries on without it.
 
 ### Transcripts
 
-| Key | Default | What it does |
-| --- | --- | --- |
-| `transcript.enabled` | `false` | Write every caption to a text file you can read after the match. |
-| `transcript.directory` | `""` | Where to write it; blank means a `transcripts` folder in the app's data folder. |
+| Key | Default | What it does | |
+| --- | --- | --- | --- |
+| `transcript.enabled` | `false` | Write every caption to a text file you can read after the match, one file per session. | Settings |
+| `transcript.directory` | `""` | Where to write it; blank means a `transcripts` folder in the app's data folder. | |
+
+### Updates and startup
+
+| Key | Default | What it does | |
+| --- | --- | --- | --- |
+| `updates.check` | `true` | On start, ask GitHub whether a newer release is out and say so, with a link. Nothing is downloaded or installed. | Settings |
+
+**Start with Windows** is in Settings too. It isn't kept in `config.json`
+but as an entry under the current user's
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` key, the usual place
+for per-user startup programs; turning it off removes the entry. If you move
+the exe, the entry follows it the next time you run it.
 
 ### For debugging
 
