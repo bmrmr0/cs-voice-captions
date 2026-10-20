@@ -108,15 +108,46 @@ def _vdf_get(node, *path):
     return node
 
 
-def condebug_status(console_log=None, steam=None):
+def _active_steam_account():
+    """The Steam account logged in right now, as its userdata folder name.
+    Steam keeps it in the registry while it runs; 0 or missing when it
+    doesn't."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Valve\Steam\ActiveProcess") as k:
+            value, _ = winreg.QueryValueEx(k, "ActiveUser")
+        return str(value) if value else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _current_account_config(steam, account=None):
+    """localconfig.vdf of the account in use: the logged-in one if Steam
+    says, else whichever was saved most recently.
+
+    Only this one counts. A PC with several Steam accounts keeps every one's
+    settings, and an old account having -condebug says nothing about the
+    account playing now -- checking "any account" reported -condebug present
+    on a machine where the logged-in account had none."""
+    import glob
+    account = account or _active_steam_account()
+    if account:
+        path = os.path.join(steam, "userdata", account, "config", "localconfig.vdf")
+        if os.path.isfile(path):
+            return path
+    found = glob.glob(os.path.join(steam, "userdata", "*", "config", "localconfig.vdf"))
+    return max(found, key=os.path.getmtime) if found else None
+
+
+def condebug_status(console_log=None, steam=None, account=None):
     """Whether CS2 is set to write console.log, which text chat depends on.
 
-    True if its Steam launch options include -condebug (or CS2 wrote the log
-    in the last ten minutes, which proves it); False if CS2's launch options
-    were found without it; None if it can't be told -- no Steam, or no
-    account here has run CS2. Only the launch-option string is read.
+    True if the current Steam account's launch options for CS2 include
+    -condebug (or CS2 wrote the log in the last ten minutes, which proves
+    it); False if they don't; None if it can't be told -- no Steam, or this
+    account has never run CS2. Only the launch-option string is read.
     """
-    import glob
     log = console_log or find_console_log("")
     try:
         if log and time.time() - os.path.getmtime(log) < 600:
@@ -129,23 +160,20 @@ def condebug_status(console_log=None, steam=None):
     steam = steam or _steam_path()
     if not steam:
         return None
-    seen_cs2 = False
-    pattern = os.path.join(steam, "userdata", "*", "config", "localconfig.vdf")
-    for cfg in glob.glob(pattern):
-        try:
-            with open(cfg, "r", encoding="utf-8", errors="replace") as f:
-                tree = _parse_vdf(f.read())
-        except OSError:
-            continue
-        app = _vdf_get(tree, "UserLocalConfigStore", "Software", "Valve", "Steam",
-                       "apps", CS2_APP_ID)
-        if not isinstance(app, dict):
-            continue                         # this account never ran CS2
-        seen_cs2 = True
-        options = app.get("launchoptions", "")
-        if re.search(r"(?:^|\s)[-+]condebug(?:\s|$)", options, re.IGNORECASE):
-            return True
-    return False if seen_cs2 else None
+    cfg = _current_account_config(steam, account)
+    if not cfg:
+        return None
+    try:
+        with open(cfg, "r", encoding="utf-8", errors="replace") as f:
+            tree = _parse_vdf(f.read())
+    except OSError:
+        return None
+    app = _vdf_get(tree, "UserLocalConfigStore", "Software", "Valve", "Steam",
+                   "apps", CS2_APP_ID)
+    if not isinstance(app, dict):
+        return None                          # this account never ran CS2
+    options = app.get("launchoptions", "")
+    return bool(re.search(r"(?:^|\s)[-+]condebug(?:\s|$)", options, re.IGNORECASE))
 
 # Decorations CS2 hangs off the player name: alive/dead state, team, spectator.
 _NAME_DECORATIONS = re.compile(
