@@ -93,12 +93,6 @@ DEFAULTS = {
         # German, Portuguese and Turkish, against two tagged Russian -- so
         # naming the languages you actually need removes most of it.
         "languages": ["ru", "uk"],
-        # Before captioning a clip as foreign, ask a second copy of the model
-        # on the CPU what language it is, and drop the clip if they disagree.
-        # The NPU is consistently wrong about the language of short clips --
-        # it called English, CS2 voice lines and noise Russian -- and the two
-        # disagree on exactly those. ~370 MB more memory, ~1s on those clips.
-        "verify_language": True,
         # Russian CS slang Whisper translates word for word: "есть" is "got
         # him", not "yes". Applied only when a short clip is just the slang.
         "slang": True,

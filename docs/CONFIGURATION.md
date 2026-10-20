@@ -36,7 +36,6 @@ window.
 | `translation.only_foreign` | `true` | Hide English speech, since you can hear it yourself. | Settings |
 | `translation.show_original` | `false` | Show the original text, in grey, beside each translation. | Settings |
 | `translation.slang` | `true` | Explain slang and swear words from the [slang dictionary](#slang-dictionary). | Settings |
-| `translation.verify_language` | `true` | Before captioning a clip as foreign, ask a second copy of the speech model, on the CPU, what language it is, and drop the clip if they disagree. Removes most false "Russian" captions. Uses about 370 MB more memory and adds about a second to those captions only. | |
 | `translation.target_language` | `"English"` | Language text chat is translated into. Voice captions are always English: that's a limit of the speech model. | |
 | `translation.translate_sources` | `["teammates"]` | Which audio sources get translated rather than transcribed. | |
 
@@ -79,11 +78,11 @@ window.
 
 ### Speech model
 
-| Key | Default | What it does |
-| --- | --- | --- |
-| `stt.model` | `"small"` | `tiny`, `base`, `small`, `medium`. Bigger is more accurate and slower, and downloads once. (`large-v3-turbo` is faster but translates poorly.) |
-| `stt.device` | `"auto"` | NPU if there is one, else the CPU. Force it with `"NPU"`, `"CPU"` or `"GPU"`. The GPU is never chosen automatically, because it's busy running the game. |
-| `stt.beam_size` | `1` | Raise to `5` for slightly better accuracy at the cost of speed. |
+| Key | Default | What it does | |
+| --- | --- | --- | --- |
+| `stt.model` | `"small"` | `tiny`, `base`, `small`, `medium`. Bigger is more accurate and slower, and downloads once. `medium` is **Translation quality: Better** in Settings: on 21 Russian test clips it translated 8 better and 4 worse than `small`, at about 0.85 s a clip instead of 0.3 s on the NPU, after a 1.5 GB download. (`large-v3-turbo` is faster but translates poorly.) Applies at the next start. | Settings |
+| `stt.device` | `"auto"` | NPU if there is one, else the CPU. Force it with `"NPU"`, `"CPU"` or `"GPU"`. The GPU is never chosen automatically, because it's busy running the game. | |
+| `stt.beam_size` | `1` | Raise to `5` for slightly better accuracy at the cost of speed. | |
 
 ### Overlay, window and hotkeys
 

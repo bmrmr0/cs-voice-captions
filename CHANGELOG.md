@@ -22,6 +22,16 @@
 - **Overlay position presets** (top or bottom; left, centre or right). At the
   bottom of the screen the overlay grows upwards as captions arrive.
 - An issue form for suggesting slang dictionary entries.
+- **Far fewer Russian clips lost.** The NPU's guess at a clip's language
+  turned out to depend on the clips before it, so real Russian was often
+  taken for something else and dropped. The language is now decided on the
+  CPU and the NPU is told it. On 121 saved clips this captions all 21
+  Russian ones, where 1.0.0 captioned 4. The `translation.verify_language`
+  option is gone: the CPU check it switched on is now how the language is
+  chosen.
+- **Translation quality: Better**, in Settings, switches to the larger
+  speech model: somewhat better translations, about three times slower,
+  1.5 GB to download once. Applies at the next start.
 
 ## 1.0.0
 

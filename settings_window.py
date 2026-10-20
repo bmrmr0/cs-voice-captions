@@ -6,9 +6,10 @@ detector is, and how the overlay looks. Each one is read live by the part of
 the app that uses it, so a change applies at once without a restart.
 
 Deliberately left out, because changing them mid-session would break or stall
-something: the speech model and device (a re-download and a recompile), the
-capture backend and process name, hotkeys (registered once at startup), and
-the console.log path. Those remain editable in config.json.
+something: the device (a recompile), the capture backend and process name,
+hotkeys (registered once at startup), and the console.log path. Those remain
+editable in config.json. The speech model is the one exception: offered
+here, but applied at the next start, and the window says so.
 """
 import copy
 
@@ -29,12 +30,16 @@ OWNED = [
     ("translation", "only_foreign"), ("translation", "show_original"),
     ("translation", "languages"),
     ("translation", "slang"),
-    ("vad", "min_utterance_s"), ("vad", "speech_threshold"),
+    ("vad", "min_utterance_s"), ("vad", "speech_threshold"), ("stt", "model"),
     ("overlay", "font_size"), ("overlay", "width"),
     ("overlay", "max_lines"), ("overlay", "line_ttl_s"),
     ("overlay", "position"),
     ("transcript", "enabled"), ("updates", "check"),
 ]
+
+# Speech models offered. Others (tiny, base, a path) can still be set in
+# config.json; the box then shows them as they are.
+MODELS = [("small", "Standard"), ("medium", "Better, slower")]
 
 # Overlay placements offered in the Position box; see Overlay.PRESETS.
 POSITIONS = [
@@ -105,6 +110,8 @@ class SettingsWindow(QWidget):
         super().__init__()
         self.cfg = cfg
         self._on_change = on_change
+        # The model is loaded once at start; a change applies after a restart.
+        self._running_model = self._get("stt", "model")
         self.setObjectName("Settings")
         from version import __version__
         self.setWindowTitle(f"CS Voice Captions {__version__} — Settings")
@@ -242,6 +249,21 @@ class SettingsWindow(QWidget):
         left.setObjectName("Hint")
         right = QLabel("Stricter")
         right.setObjectName("Hint")
+        self.co_model = QComboBox()
+        for key, name in MODELS:
+            self.co_model.addItem(name, key)
+        self.co_model.currentIndexChanged.connect(self._model_changed)
+        _row(form, "Translation quality", self.co_model,
+             "Better uses the larger \u201cmedium\u201d speech model. On 21 "
+             "Russian test clips it translated 8 better than Standard and 4 "
+             "worse, and takes about 0.85 s a clip instead of 0.3 s. It "
+             "downloads 1.5 GB once and needs a couple of minutes to get "
+             "ready the first time. Applies the next time the app starts.")
+        self.lb_model = QLabel("Restart the app to switch.")
+        self.lb_model.setObjectName("Hint")
+        self.lb_model.setVisible(False)
+        form.addRow("", self.lb_model)
+
         self.sl_sens = QSlider(Qt.Horizontal)
         self.sl_sens.setRange(30, 80)          # speech_threshold 0.30 .. 0.80
         self.sl_sens.valueChanged.connect(
@@ -306,6 +328,12 @@ class SettingsWindow(QWidget):
         for cb in (self.cb_autostart, self.cb_transcript, self.cb_updates):
             lay.addWidget(cb)
         return box
+
+    def _model_changed(self, _i):
+        key = self.co_model.currentData()
+        if key is not None:
+            self._set("stt", "model", key)
+        self.lb_model.setVisible(self._get("stt", "model") != self._running_model)
 
     def _autostart_toggled(self, on):
         if getattr(self, "_loading", False):
@@ -419,6 +447,12 @@ class SettingsWindow(QWidget):
             self.sp_width.setValue(int(self._get("overlay", "width")))
             self.sp_lines.setValue(int(self._get("overlay", "max_lines")))
             self.sp_ttl.setValue(int(self._get("overlay", "line_ttl_s")))
+            model = self._get("stt", "model")
+            mkeys = [k for k, _ in MODELS]
+            if model not in mkeys and self.co_model.findData(model) < 0:
+                self.co_model.addItem(str(model), model)
+            self.co_model.setCurrentIndex(self.co_model.findData(model))
+            self.lb_model.setVisible(model != self._running_model)
             keys = [k for k, _ in POSITIONS]
             pos = self._get("overlay", "position")
             self.co_pos.setCurrentIndex(keys.index(pos) if pos in keys else 0)

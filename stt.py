@@ -200,8 +200,8 @@ class Transcriber:
         self.device = "CPU"
         self.device_summary = "CPU"
         self._pipe = None
-        self._verifier = None          # second opinion on the language, on the CPU
-        self._verifier_failed = False
+        self._detector = None          # picks each clip's language, on the CPU
+        self._detector_failed = False
         self._load()
 
     # -- setup -------------------------------------------------------------
@@ -242,12 +242,12 @@ class Transcriber:
                 return dev, available
         return "CPU", available
 
-    def _model_path(self):
+    def _model_path(self, name=None):
         """Resolve the model to a local directory, downloading it once into the
         app's data folder if it isn't there yet."""
         import config as config_mod
 
-        name = (self.scfg.get("model") or "small").strip()
+        name = (name or self.scfg.get("model") or "small").strip()
         if os.path.isdir(name):
             return name
 
@@ -305,10 +305,9 @@ class Transcriber:
                                if device.upper().startswith("NPU") else device)
         print(f"[stt] '{self.scfg.get('model', 'small')}' ready on {device} "
               f"(devices seen: {available})")
-        # Load the language double-check now, not on the first foreign clip,
-        # so that clip's caption isn't held up by the load as well.
-        if self.tcfg.get("verify_language", True):
-            self._get_verifier()
+        # Load it now, not on the first clip, so that caption isn't held up
+        # by the load as well.
+        self._get_detector()
 
     # -- transcription -----------------------------------------------------
     def _run(self, audio, task="transcribe", language=None):
@@ -359,53 +358,74 @@ class Transcriber:
         return {str(c).strip().lower()
                 for c in self.tcfg.get("languages", []) if str(c).strip()}
 
-    def _get_verifier(self):
-        """A CPU copy of the model, used only to double-check the language of
-        clips about to be captioned as foreign.
+    def _get_detector(self):
+        """A CPU copy of the model that decides which language each clip is
+        in. The NPU still does the transcribing and translating, told which
+        language to use.
 
-        On short clips the NPU build is consistently, not randomly, wrong
-        about language: real game clips it called Russian included English,
-        CS2 voice lines and noise -- and asking it again with the clip
-        shifted gave the same wrong answer. The CPU build makes different
-        mistakes. Of every clip checked by hand, all 7 genuinely Russian ones
-        were Russian on both, and all 12 false ones disagreed. About 370 MB
-        and ~0.9s per check, so it runs only on clips about to be shown.
-        Pointless when the main model is already on the CPU."""
-        if (self._verifier is not None or self._verifier_failed
+        The NPU build can't be trusted to pick the language itself: its
+        answer depends on the clips it heard before. The same 30 clips run
+        forwards and then backwards got different languages on 25 of them
+        (OpenVINO 2026.3 and 2026.4 alike), while the CPU build gave the
+        same answer every time, and so did a freshly loaded NPU model on its
+        first clip. That is what made the NPU seem to hear Russian in
+        English, CS2's radio and noise -- and, just as often, to miss real
+        Russian. Told the language, the NPU's output no longer depends on
+        what came before (121 of 121 identical both ways).
+
+        Only the language is asked for, which costs one encoder pass:
+        ~0.95 s for small, against ~3 s for medium -- so with medium as the
+        main model this stays on small. About 370 MB. Not needed when the
+        main model is already on the CPU."""
+        if (self._detector is not None or self._detector_failed
                 or self.device.upper().startswith("CPU")):
-            return self._verifier
+            return self._detector
         try:
             import openvino_genai as ov_genai
             import config as config_mod
-            self._verifier = ov_genai.WhisperPipeline(
-                self._model_dir, device="CPU",
+            big = (self.scfg.get("model") or "").strip().lower() in ("medium", "large-v3-turbo")
+            self._detector = ov_genai.WhisperPipeline(
+                self._model_path("small") if big else self._model_dir, device="CPU",
                 CACHE_DIR=os.path.join(config_mod.data_dir(), "device-cache"))
-            print("[stt] language double-check ready on CPU")
+            print("[stt] language detection ready on CPU")
         except Exception as e:  # noqa: BLE001
-            self._verifier_failed = True
-            print(f"[stt] language double-check unavailable ({e}); continuing without it")
-        return self._verifier
+            self._detector_failed = True
+            print(f"[stt] CPU language detection unavailable ({e}); "
+                  "the NPU will guess the language itself")
+        return self._detector
 
-    def _confirmed(self, audio, lang):
-        """None if the CPU model agrees on `lang` (or can't be asked), else
-        the language it heard instead."""
-        if not self.tcfg.get("verify_language", True):
-            return None
-        verifier = self._get_verifier()
-        if verifier is None:
+    def _detect_language(self, audio):
+        """The clip's language code from the CPU model, or None to let the
+        main model decide (on the CPU it is reliable on its own)."""
+        detector = self._get_detector()
+        if detector is None:
             return None
         try:
-            # The language is decided before any text, so a few tokens is
-            # enough; this is what keeps the check under a second.
-            r = verifier.generate(audio, task="translate", max_new_tokens=4)
-            heard = (getattr(r, "language", "") or "").strip().lower()
+            r = detector.generate(audio, task="translate", max_new_tokens=1)
+            return (getattr(r, "language", "") or "").strip().strip("<|>").lower() or None
         except Exception as e:  # noqa: BLE001
-            print(f"[stt] language double-check failed ({e})")
+            print(f"[stt] language detection failed ({e})")
             return None
-        return None if heard == (lang or "").lower() else (heard or "?")
 
     def _is_target_lang(self, lang):
         return (lang or "").strip().lower() == self.target_code
+
+    def _language_unwanted(self, lang, text=""):
+        """Why a clip in `lang` isn't shown, or None if it is. English is
+        governed only by only_foreign, so "show English" still works when
+        the language list names just ru/uk."""
+        if self._is_target_lang(lang):
+            if self.only_foreign:
+                print(f"[stt] skipped, detected {lang or '?'} "
+                      f"(translation.only_foreign){': ' + text[:60] if text else ''}")
+                return True
+            return False
+        languages = self.languages
+        if languages and (lang or "").lower() not in languages:
+            print(f"[stt] skipped, detected {lang or '?'} "
+                  f"(translation.languages){': ' + text[:60] if text else ''}")
+            return True
+        return False
 
     def process(self, source_key, audio):
         """Returns a result dict or None if nothing worth showing."""
@@ -416,29 +436,19 @@ class Transcriber:
         )
 
         if do_translate:
-            # One pass: speech in any language straight out as English.
-            text, lang = self._run(audio, task="translate")
-            # Already-English speech is not worth showing: you can hear it.
-            # This is only safe now that Silero keeps game noise out -- the
-            # earlier build ran this filter over webrtcvad's false positives
-            # and threw away 95% of its captions.
-            # English is governed only by only_foreign, so "show English" still
-            # works when the language list names just ru/uk.
-            is_target = self._is_target_lang(lang)
-            if is_target and self.only_foreign:
-                print(f"[stt] skipped, detected {lang or '?'} "
-                      f"(translation.only_foreign): {text[:60]}")
+            # Language first, on the CPU; a clip in a language that isn't
+            # shown never reaches the NPU. Already-English speech is not
+            # worth showing: you can hear it. (Only safe because Silero keeps
+            # game noise out -- with webrtcvad's false positives this filter
+            # threw away 95% of the captions.)
+            lang = self._detect_language(audio)
+            if lang and self._language_unwanted(lang):
                 return None
-            languages = self.languages
-            if not is_target and languages and (lang or "").lower() not in languages:
-                print(f"[stt] skipped, detected {lang or '?'} "
-                      f"(translation.languages): {text[:60]}")
-                return None
-            if not is_target:
-                other = self._confirmed(audio, lang)
-                if other:
-                    print(f"[stt] skipped, detected {lang} but the CPU check heard "
-                          f"{other} (translation.verify_language): {text[:60]}")
+            # One pass: speech in that language straight out as English.
+            text, heard = self._run(audio, task="translate", language=lang)
+            if not lang:
+                lang = (heard or "").strip("<|>").lower()
+                if self._language_unwanted(lang, text):
                     return None
             print(f"[stt] detected {lang or '?'}: {text[:60]}")
             original, gloss, from_phrase = None, [], False
@@ -474,7 +484,8 @@ class Transcriber:
             return {"source": source_key, "lang": lang, "text": text,
                     "original": original, "translated": True, "gloss": gloss}
 
-        text, lang = self._run(audio, task="transcribe")
+        text, lang = self._run(audio, task="transcribe",
+                               language=self._detect_language(audio))
         text = self._clean(text, dedupe=True)
         if not text:
             return None

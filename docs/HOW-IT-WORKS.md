@@ -42,6 +42,25 @@ GPU that's running the game. On a Core Ultra 9 it's also faster than the CPU:
 | NPU | **0.40 s** |
 | CPU | 2.19 s |
 
+## Which language? Asked of the CPU
+
+On the NPU, Whisper's guess at a clip's language depends on the clips it
+heard before. The same 30 clips run forwards and then backwards came back
+in different languages for 25 of them (OpenVINO 2026.3 and 2026.4 alike),
+while the CPU build gave the same answer every time, as did a freshly
+loaded NPU model on its first clip. That is why the NPU seemed to hear
+Russian in English, CS2's radio and noise, and as often missed real Russian.
+
+So a copy of the model on the CPU decides the language of each clip (one
+encoder pass, about 0.95 s, ~370 MB), and the NPU then transcribes and
+translates it told which language it is. Told the language, the NPU's output
+no longer depends on what came before. On 121 saved clips the old approach
+(NPU guesses, CPU confirms) captioned 4 of the 21 Russian ones; this one
+captions all 21, and gives the same captions in either order.
+
+A clip in a language you don't caption is dropped after the CPU pass and
+never reaches the NPU.
+
 ## What gets filtered, and why
 
 A clip has to pass every one of these before it becomes a caption:
@@ -50,21 +69,15 @@ A clip has to pass every one of these before it becomes a caption:
 2. **It is long enough** (`vad.min_utterance_s`, half a second by default).
    Most callouts are under two seconds, so this is kept short.
 3. **It is in a language you picked** (`translation.languages`). On short
-   clips Whisper's language guess is close to random: one evening's junk clips
-   came back as Korean, Chinese, Tamil, Arabic, German, Portuguese and Turkish.
-   Naming the languages you want removes most of it.
-4. **A second opinion agrees on the language** (`translation.verify_language`).
-   The NPU build of the model is *consistently* wrong about short clips: it
-   called English speech, CS2's own voice lines and plain noise "Russian", and
-   asking it again with the clip shifted gave the same wrong answer. A second
-   copy on the CPU makes different mistakes. Of every clip checked by hand, all
-   genuinely Russian ones were Russian on both, and every false one disagreed.
-5. **It isn't English**, unless you've turned English on.
-6. **It isn't a stock phrase**: Whisper's habitual inventions ("Thanks for
+   clips the guess is shaky even on the CPU: noise and mumbling come back
+   as Dutch, Romanian or Japanese. Naming the languages you want removes
+   most of it.
+4. **It isn't English**, unless you've turned English on.
+5. **It isn't a stock phrase**: Whisper's habitual inventions ("Thanks for
    watching!", subtitle credits) and CS2's scripted radio lines ("Throwing
    smoke!") are dropped by exact match. Generic lines like "go go go" are kept,
    because real teammates say them too.
-7. **It isn't a repeat** of one of the last 20 captions (`vad.repeat_window`),
+6. **It isn't a repeat** of one of the last 20 captions (`vad.repeat_window`),
    which is what music kits do every round.
 
 Phrases end after 0.9 s of silence (`vad.silence_ms`). With 0.5 s, ordinary
@@ -93,8 +106,8 @@ setting and the value it wanted:
 
 ```
 [audio:teammates] clip dropped: phrase ran 0.3s (vad.min_utterance_s wants 0.5s)
-[stt] skipped, detected pl (translation.languages): Nice.
-[stt] skipped, detected ru but the CPU check heard en (translation.verify_language): Down here.
+[stt] skipped, detected pl (translation.languages)
+[stt] skipped, detected en (translation.only_foreign)
 ```
 
 A minute with nothing captioned reports what was heard, which tells a quiet
