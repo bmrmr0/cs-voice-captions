@@ -12,7 +12,11 @@ Two kinds of entry, per language:
     becomes its meaning ("Есть, есть, есть!" -> "Got him!").
   * terms   -- explained in a note under the caption wherever they appear.
     The translation itself is left alone: swapping one word inside machine
-    translated text would garble the rest of the sentence.
+    translated text would garble the rest of the sentence. A message that is
+    nothing but one term, though, has no sentence to garble: its meaning
+    becomes the caption, as for a phrase. Otherwise a lone insult came back
+    from the translator merely transliterated, with the real meaning only
+    in the note.
 """
 import json
 import os
@@ -83,6 +87,16 @@ class _Table:
         words = _words(text, self.lang)
         collapsed = [w for i, w in enumerate(words) if i == 0 or w != words[i - 1]]
         return self.phrases.get(" ".join(collapsed)) if collapsed else None
+
+    def whole_term(self, text):
+        """The meaning if `text` is one term and nothing else (repeats and
+        punctuation aside), else None."""
+        words = _words(text, self.lang)
+        collapsed = [w for i, w in enumerate(words) if i == 0 or w != words[i - 1]]
+        found = self.find_terms(" ".join(collapsed)) if collapsed else []
+        if len(found) == 1 and len(found[0][0].split()) == len(collapsed):
+            return found[0][1]
+        return None
 
     def find_terms(self, text):
         words = _words(text, self.lang)
@@ -174,13 +188,20 @@ class Glossary:
         return bool(self._tables_for([lang]))
 
     def phrase(self, text, langs):
-        """The meaning if `text` is, as a whole, a known phrase; else None."""
+        """The meaning if `text` is, as a whole, a known phrase -- or a
+        known term on its own; else None."""
         with self._lock:
             self._maybe_reload()
             for table in self._tables_for(langs):
                 meaning = table.phrase(text)
                 if meaning:
                     return meaning
+            for table in self._tables_for(list(langs) + ["any"]):
+                meaning = table.whole_term(text)
+                if meaning:
+                    # Terms are written as glosses ("fucking moron"); as a
+                    # caption it reads better capitalised.
+                    return meaning[:1].upper() + meaning[1:]
         return None
 
     def pretranslate(self, text, langs):

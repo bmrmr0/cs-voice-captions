@@ -22,6 +22,10 @@
 - **Overlay position presets** (top or bottom; left, centre or right). At the
   bottom of the screen the overlay grows upwards as captions arrive.
 - An issue form for suggesting slang dictionary entries.
+- **A lone slang word gets its meaning.** A message that is nothing but one
+  dictionary term now shows the term's meaning as the caption. Before, the
+  translator often just transliterated an insult, and the meaning was only
+  in the note underneath.
 - **Far fewer Russian clips lost.** The NPU's guess at a clip's language
   turned out to depend on the clips before it, so real Russian was often
   taken for something else and dropped. The language is now decided on the

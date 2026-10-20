@@ -161,7 +161,9 @@ Each language code has up to three sections:
   phrase. Repeats are allowed: `Есть, есть, есть!` matches `есть`.
 - **terms** add a short note under the caption wherever the word appears. The
   translation itself is left alone, since swapping one word inside a
-  machine translation would garble the rest.
+  machine translation would garble the rest. A message that is *only* that
+  word (repeats and punctuation aside) has nothing to garble, so its meaning
+  becomes the caption, the way a phrase does.
 - **replace** swaps a word for its English *before* a chat line is sent to
   the translator, so the translation comes out right: `легко с вх играть`
   becomes "easy to play with wallhack" instead of "…with input". Use it only
