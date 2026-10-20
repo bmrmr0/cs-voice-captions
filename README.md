@@ -15,8 +15,8 @@ audio and the log file CS2 writes itself, and never touches the game process.
   the browser stay out. Speech is transcribed and translated on your PC.
 - **Text chat translation** for all-chat and team chat, with where a teammate
   was for team chat.
-- **You pick the languages** to translate (Russian and Ukrainian by default).
-  English is hidden unless you turn it on.
+- **You pick the languages** to translate (Russian, Ukrainian and Polish by
+  default). English is hidden unless you turn it on.
 - **Slang and swearing explained.** `есть!` is "Got him!", not "Yes". You can
   add your own words.
 - **Junk filtered out:** gunfire, music kits, CS2's own radio lines and

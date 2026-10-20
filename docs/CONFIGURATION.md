@@ -32,7 +32,7 @@ window.
 
 | Key | Default | What it does | |
 | --- | --- | --- | --- |
-| `translation.languages` | `["ru", "uk"]` | Spoken languages to caption, as two-letter codes. `[]` means any language, which lets through more junk: on short clips the language guess is unreliable. | Settings |
+| `translation.languages` | `["ru", "uk", "pl"]` | Spoken languages to caption, as two-letter codes. `[]` means any language, which lets through more junk: on short clips the language guess is unreliable, and noise sometimes comes out as a random language. | Settings |
 | `translation.only_foreign` | `true` | Hide English speech, since you can hear it yourself. | Settings |
 | `translation.show_original` | `false` | Show the original text, in grey, beside each translation. | Settings |
 | `translation.slang` | `true` | Explain slang and swear words from the [slang dictionary](#slang-dictionary). | Settings |

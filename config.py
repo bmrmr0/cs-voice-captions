@@ -86,13 +86,11 @@ DEFAULTS = {
         # setting discarded 95% of captions, because Whisper guesses "en" on
         # whatever noise it is handed.
         "only_foreign": True,
-        # Only caption speech Whisper detects as one of these (ISO codes); an
-        # empty list means any language. On short clips Whisper guesses the
-        # language from very little, and the guesses spread across everything
-        # -- of one evening's junk clips, Korean, Chinese, Tamil, Arabic,
-        # German, Portuguese and Turkish, against two tagged Russian -- so
-        # naming the languages you actually need removes most of it.
-        "languages": ["ru", "uk"],
+        # Only caption speech detected as one of these (ISO codes); empty
+        # means any language. On short clips the guess is made from very
+        # little, so noise and mumbling sometimes come out as a random
+        # language -- naming the ones you need removes most of that junk.
+        "languages": ["ru", "uk", "pl"],
         # Russian CS slang Whisper translates word for word: "есть" is "got
         # him", not "yes". Applied only when a short clip is just the slang.
         "slang": True,

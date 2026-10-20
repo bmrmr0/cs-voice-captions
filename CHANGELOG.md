@@ -22,6 +22,7 @@
 - **Overlay position presets** (top or bottom; left, centre or right). At the
   bottom of the screen the overlay grows upwards as captions arrive.
 - An issue form for suggesting slang dictionary entries.
+- **Polish is captioned by default** too, alongside Russian and Ukrainian.
 - **Smaller exe: 145 MB instead of 200 MB**, and less to unpack on every
   start. Dropped what the app never loads: OpenVINO's GPU plugin, importers
   for model formats it doesn't read, onnxruntime, Qt's QML/Quick/PDF parts
