@@ -95,14 +95,14 @@ Everything else, including rebinding the hotkeys, is in the
 
 ## Privacy and anti-cheat
 
-Your voice never leaves your PC, and nothing touches the game.
+Voice chat is turned into text on your PC and never sent anywhere, and nothing touches the game.
 
 <details>
 <summary><b>Details</b></summary>
 
 <br>
 
-- **Speech recognition runs locally**, on your NPU or CPU.
+- **Voice chat is transcribed and translated locally**, on your NPU or CPU. The audio is never uploaded.
 - **Text chat is sent to Google Translate** to be translated (MyMemory if
   Google is unavailable). In-match chat is public; turn translation off in
   Settings if you'd rather it wasn't sent anywhere.
