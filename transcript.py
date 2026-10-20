@@ -12,27 +12,39 @@ import time
 
 class TranscriptWriter:
     def __init__(self, tcfg, default_dir):
-        tcfg = tcfg or {}
-        self.enabled = bool(tcfg.get("enabled", False))
+        self._tcfg = tcfg if tcfg is not None else {}
+        self._default_dir = default_dir
+        self.enabled = False
         self.path = None
         self._fh = None
         self._lock = threading.Lock()
         self._broken = False
-        if not self.enabled:
-            return
-        directory = (tcfg.get("directory") or "").strip() or default_dir
+        self.set_enabled(bool(self._tcfg.get("enabled", False)))
+
+    def set_enabled(self, on):
+        """Start or stop writing, while the app runs (the Settings toggle).
+        Each start opens a new file, named by the time it began."""
+        if not on:
+            self.close()
+            self.enabled = False
+            return None
+        if self._fh:
+            return self.path
+        directory = (self._tcfg.get("directory") or "").strip() or self._default_dir
         try:
             os.makedirs(directory, exist_ok=True)
             name = time.strftime("captions-%Y-%m-%d_%H-%M-%S.txt")
-            self.path = os.path.join(directory, name)
-            self._fh = open(self.path, "a", encoding="utf-8")
-            self._fh.write(f"# CS Voice Captions - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            self._fh.flush()
+            path = os.path.join(directory, name)
+            fh = open(path, "a", encoding="utf-8")
+            fh.write(f"# CS Voice Captions - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            fh.flush()
         except Exception as e:  # noqa: BLE001
             print(f"[transcript] disabled: {e}")
             self.enabled = False
-            self.path = None
-            self._fh = None
+            return None
+        with self._lock:
+            self._fh, self.path, self._broken, self.enabled = fh, path, False, True
+        return path
 
     def add_caption(self, r):
         if not self._fh or self._broken:

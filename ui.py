@@ -35,6 +35,8 @@ class Bridge(QObject):
     toggle_overlay = Signal()
     show_window = Signal()
     connection = Signal(str, str)     # capture state, detail -- see audio.py
+    show_reply = Signal()
+    update_available = Signal(str, str)   # release tag, its page
 
 
 # (colour, short text) for each capture state. Paused overrides all of them.
@@ -90,6 +92,7 @@ class Overlay(QWidget):
         self._ttl = ocfg.get("line_ttl_s", 12)
         self._x = ocfg.get("x", 40)
         self._y = ocfg.get("y", 40)
+        self._preset = ocfg.get("position", "custom")
 
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
@@ -106,6 +109,7 @@ class Overlay(QWidget):
         self._timer.timeout.connect(self._prune)
         self._timer.start(500)
         self._clamp_to_screen()
+        self._place()
         self.move(self._x, self._y)
 
     # -- window flags ------------------------------------------------------
@@ -202,6 +206,7 @@ class Overlay(QWidget):
         self._max = max(1, int(o.get("max_lines", self._max)))
         self._ttl = float(o.get("line_ttl_s", self._ttl))
         self._w = int(o.get("width", self._w))
+        self._preset = o.get("position", self._preset)
         self.setFixedWidth(self._w)
         for lbl, _ in self._items:
             lbl.setFixedWidth(self._w)
@@ -232,6 +237,10 @@ class Overlay(QWidget):
 
     def mouseMoveEvent(self, ev):
         if self._drag_from is not None:
+            # Dragged by hand: that is now its place, whatever preset it
+            # had (and a caption arriving mid-drag must not snap it back).
+            self._preset = "custom"
+            self.ocfg["position"] = "custom"
             self.move(ev.globalPosition().toPoint() - self._drag_from)
             ev.accept()
 
@@ -273,10 +282,38 @@ class Overlay(QWidget):
         self._x = min(max(self._x, geo.x()), geo.x() + max(0, geo.width() - self._w))
         self._y = min(max(self._y, geo.y()), geo.y() + max(0, geo.height() - 100))
 
+    # Where a preset puts the overlay, as (horizontal, vertical) on the
+    # primary screen. "custom" is wherever it was last dragged.
+    PRESETS = {
+        "top-left": ("left", "top"), "top-center": ("center", "top"),
+        "top-right": ("right", "top"), "bottom-left": ("left", "bottom"),
+        "bottom-center": ("center", "bottom"), "bottom-right": ("right", "bottom"),
+    }
+    MARGIN = 40
+
+    def _place(self):
+        """Position for the current preset. A bottom preset keeps the bottom
+        edge fixed, so the overlay grows upwards as captions arrive instead
+        of running off the bottom of the screen."""
+        where = self.PRESETS.get(self._preset)
+        screen = QGuiApplication.primaryScreen()
+        if where is None or screen is None:
+            return
+        geo = screen.availableGeometry()
+        h, v = where
+        m = self.MARGIN
+        self._x = {"left": geo.x() + m,
+                   "center": geo.x() + (geo.width() - self._w) // 2,
+                   "right": geo.x() + geo.width() - self._w - m}[h]
+        self._y = (geo.y() + m if v == "top"
+                   else geo.y() + geo.height() - self.height() - m)
+
     def _reflow(self):
         self.adjustSize()
-        # Dragging is the only thing allowed to change our position; a reflow
-        # must not yank the overlay back to where it started.
+        self._place()
+        # Otherwise dragging is the only thing allowed to change our
+        # position; a reflow must not yank the overlay back to where it
+        # started.
         self.move(self._x, self._y)
 
     def _prune(self):
@@ -294,9 +331,10 @@ class Overlay(QWidget):
 
 
 class History(QWidget):
-    def __init__(self, hcfg=None, on_settings=None, on_clear=None):
+    def __init__(self, hcfg=None, on_settings=None, on_clear=None, on_mute=None):
         super().__init__()
         self._on_clear = on_clear
+        self._on_mute = on_mute
         hcfg = hcfg or {}
         self.setWindowTitle("CS Voice Captions")
         self.resize(580, 640)
@@ -310,6 +348,9 @@ class History(QWidget):
             "QTextEdit { background:#121417; color:#e8e8e8;"
             " font-size:14px; font-family:'Segoe UI', sans-serif; }"
         )
+        # Right-clicking a player's name in a chat line offers to mute them.
+        self.view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.view.customContextMenuRequested.connect(self._context_menu)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -347,6 +388,21 @@ class History(QWidget):
                            f"&nbsp;{html_escape(text)}")
         self._conn.setToolTip(tooltip)
 
+    def _context_menu(self, pos):
+        menu = self.view.createStandardContextMenu(pos)
+        anchor = self.view.anchorAt(pos)
+        if anchor.startswith("player:") and self._on_mute:
+            from urllib.parse import unquote
+            name = unquote(anchor[len("player:"):])
+            first = menu.actions()[0] if menu.actions() else None
+            act = QAction(f"Mute {name}", menu)
+            act.setToolTip("Hide this player's chat. Unmute in Settings.")
+            act.triggered.connect(lambda: self._on_mute(name))
+            menu.insertAction(first, act)
+            menu.insertSeparator(first)
+        menu.exec(self.view.viewport().mapToGlobal(pos))
+        menu.deleteLater()
+
     def clear(self):
         self.view.clear()
         if self._on_clear:
@@ -362,17 +418,23 @@ class History(QWidget):
         text = html_escape(r.get("text", ""))
         orig = (f" <span style='color:#888'>({html_escape(r['original'])})</span>"
                 if r.get("original") else "")
+        name = f"<b style='color:{color}'>{label}</b>"
         if r.get("kind") == "chat":
             scope = _chat_tag(r)
             tag = f" <span style='color:#888'>[{scope}]</span>" if scope else ""
             marker = "&#128172;"
+            # A link only so a right-click can tell whose name it was on.
+            from urllib.parse import quote
+            href = "player:" + quote(r.get("label", ""), safe="")
+            name = (f"<a href='{href}' style='color:{color};text-decoration:none'>"
+                    f"{name}</a>")
         else:
             tag = (f" <span style='color:#888'>[{html_escape(r.get('lang', ''))}]</span>"
                    if r.get("translated") else "")
             marker = f"<span style='color:{color}'>&#9679;</span>"
         self.view.append(
             f"<span style='color:#666'>{ts}</span> "
-            f"{marker} <b style='color:{color}'>{label}</b>{tag} {text}{orig}"
+            f"{marker} {name}{tag} {text}{orig}"
             f"{_gloss_html(r, 12, False)}"
         )
 
@@ -386,7 +448,8 @@ class TrayController:
 
     def __init__(self, app, overlay, history, paused_event, stop_event,
                  overlay_enabled=False, on_overlay_toggle=None, on_quit=None,
-                 chat_cfg=None, on_chat_toggle=None, on_settings=None):
+                 chat_cfg=None, on_chat_toggle=None, on_settings=None,
+                 on_reply=None):
         self.app = app
         self.overlay = overlay
         self.history = history
@@ -419,6 +482,17 @@ class TrayController:
         self.act_chat.setCheckable(True)
         self.act_chat.triggered.connect(self.toggle_chat)
 
+        act_reply = QAction("Reply in chat…", self.menu)
+        act_reply.setToolTip("Type English, get it translated onto the clipboard")
+        if on_reply is not None:
+            act_reply.triggered.connect(on_reply)
+
+        # Hidden until a newer release turns up; see notify_update.
+        self.act_update = QAction("", self.menu)
+        self.act_update.setVisible(False)
+        self._update_url = None
+        self.act_update.triggered.connect(self._open_update)
+
         act_settings = QAction("Settings…", self.menu)
         if on_settings is not None:
             act_settings.triggered.connect(on_settings)
@@ -426,10 +500,13 @@ class TrayController:
         act_quit = QAction("Quit", self.menu)
         act_quit.triggered.connect(self.quit)
 
+        self.menu.addAction(self.act_update)
         for a in (self.act_pause, self.act_overlay, self.act_lock, self.act_hist):
             self.menu.addAction(a)
         self.menu.addSeparator()
         self.menu.addAction(self.act_chat)
+        if on_reply is not None:
+            self.menu.addAction(act_reply)
         self.menu.addAction(act_settings)
         self.menu.addSeparator()
         self.menu.addAction(act_quit)
@@ -439,6 +516,7 @@ class TrayController:
 
         self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._on_activated)
+        self.tray.messageClicked.connect(self._open_update)
         self._sync_labels()
         self.tray.show()
 
@@ -482,6 +560,22 @@ class TrayController:
         self._sync_labels()
         if self._on_chat_toggle:
             self._on_chat_toggle(self._chat_cfg["show"])
+
+    def notify_update(self, tag, url):
+        """Slot for Bridge.update_available: say once, and keep a menu item
+        that opens the release page. Nothing is downloaded."""
+        self._update_url = url
+        self.act_update.setText(f"New version {tag} available…")
+        self.act_update.setVisible(True)
+        self.tray.showMessage("CS Voice Captions",
+                              f"Version {tag} is available. Click to open its page.",
+                              QSystemTrayIcon.Information, 10000)
+
+    def _open_update(self):
+        if self._update_url:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(self._update_url))
 
     def show_window(self):
         self.history.show()

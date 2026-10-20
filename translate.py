@@ -100,8 +100,12 @@ class _ChainTranslator:
     GOOGLE_BACKOFF_S = 600      # after a 429, leave Google alone this long
     LOG_EVERY_S = 300           # repeat a failure message at most this often
 
-    def __init__(self, target):
+    def __init__(self, target, source=None):
         self.target = _lang_code(target)
+        # None = work it out from the text, which is what chat needs. The
+        # reply helper knows its source (English), and saying so lets
+        # MyMemory -- which can't detect a language -- translate it too.
+        self.source = _lang_code(source) if source else None
         self._said = {}
 
     def _note(self, key, msg):
@@ -155,7 +159,7 @@ class _ChainTranslator:
             if now < off.get(name, 0.0):
                 continue
             try:
-                r = requests.get(url, params={**params, "sl": "auto",
+                r = requests.get(url, params={**params, "sl": self.source or "auto",
                                               "tl": self.target, "q": text},
                                  timeout=6)
                 if r.status_code in self._THROTTLED:
@@ -178,7 +182,7 @@ class _ChainTranslator:
         if not dst:
             return None
         from deep_translator import MyMemoryTranslator
-        for source in _guess_sources(text):
+        for source in [self.source] if self.source else _guess_sources(text):
             src = _MYMEMORY_CODES.get(source)
             if source == self.target or not src:
                 continue
@@ -225,3 +229,11 @@ def make_text_translator(cfg):
     if engine == "off":
         return None
     return _ChainTranslator(tcfg.get("target_language", "English"))
+
+
+def make_reply_translator(cfg, target):
+    """English -> `target` (a code like "ru"), for the reply helper; None if
+    translation is switched off in config.json."""
+    if cfg.get("chat", {}).get("translator", "google").lower() == "off":
+        return None
+    return _ChainTranslator(target, source="en")

@@ -118,6 +118,9 @@ from transcript import TranscriptWriter           # noqa: E402
 from ui import (Bridge, Overlay, History, TrayController,  # noqa: E402
                 CondebugReminder, should_remind_condebug)
 from settings_window import SettingsWindow        # noqa: E402
+from reply_window import ReplyWindow              # noqa: E402
+import autostart                                  # noqa: E402
+import updates                                    # noqa: E402
 from PySide6.QtCore import QTimer                 # noqa: E402
 from PySide6.QtWidgets import QApplication        # noqa: E402
 
@@ -240,6 +243,8 @@ class ChatWorker(threading.Thread):
             # line nobody will see.
             if not ccfg.get("show", True):
                 continue
+            if ev.get("name") in ccfg.get("muted", ()):
+                continue
             # The same player sending the same line again (spam, or a bound
             # key held down) floods the window with copies. Shown once; the
             # repeats are dropped before they cost a translation request.
@@ -333,13 +338,27 @@ def main():
 
     def on_setting_change(section, key):
         # Everything else the window changes is read live by its consumer;
-        # only the overlay has widgets that need redrawing.
+        # the overlay has widgets to redraw and the transcript a file to open.
         if section == "overlay":
             overlay.apply_settings()
+        elif (section, key) == ("transcript", "enabled"):
+            path = writer.set_enabled(cfg["transcript"]["enabled"])
+            bridge.status.emit(f"Transcript: {path}" if path else "Transcript stopped")
 
     settings = SettingsWindow(cfg, on_change=on_setting_change)
+    reply = ReplyWindow(cfg)
+    autostart.repair()          # the exe may have moved since it was turned on
+
+    def mute_player(name):
+        # ChatWorker reads this list for every line, so it applies at once.
+        muted = cfg.setdefault("chat", {}).setdefault("muted", [])
+        if name not in muted:
+            muted.append(name)
+            config_mod.save(cfg)
+        bridge.status.emit(f"Muted {name}'s chat. Unmute in Settings.")
+
     history = History(cfg.get("history", {}), on_settings=settings.open,
-                      on_clear=overlay.clear)
+                      on_clear=overlay.clear, on_mute=mute_player)
 
     bridge.new_caption.connect(
         lambda r: (overlay.add_caption(r), history.add_caption(r), writer.add_caption(r)))
@@ -362,7 +381,8 @@ def main():
                           on_quit=writer.close,
                           chat_cfg=cfg["chat"],
                           on_chat_toggle=lambda _shown: config_mod.save(cfg),
-                          on_settings=settings.open)
+                          on_settings=settings.open,
+                          on_reply=reply.open)
 
     # Hotkey callbacks fire on the hotkey thread; signals hop them to the GUI
     # thread before anything touches a widget.
@@ -370,6 +390,10 @@ def main():
     bridge.toggle_overlay.connect(tray.toggle_overlay)
     bridge.show_window.connect(tray.show_window)
     bridge.connection.connect(tray.set_connection)
+    bridge.show_reply.connect(reply.open)
+    bridge.update_available.connect(tray.notify_update)
+    bridge.update_available.connect(
+        lambda tag, url: bridge.status.emit(f"Version {tag} is available: {url}"))
     # A later launch of the exe asks for the window instead of starting a
     # second copy -- or, if it is a newer build, takes over from this one.
     # Kept referenced so the server lives as long as the app.
@@ -381,6 +405,7 @@ def main():
             "toggle_pause": bridge.toggle_pause.emit,
             "toggle_overlay": bridge.toggle_overlay.emit,
             "show_window": bridge.show_window.emit,
+            "reply": bridge.show_reply.emit,
         },
         stop_event,
     )
@@ -450,6 +475,8 @@ def main():
         dlg.activateWindow()
 
     QTimer.singleShot(1500, remind_condebug)
+    if cfg.get("updates", {}).get("check", True):
+        updates.check_async(bridge.update_available.emit)
 
     # Qt's event loop blocks Python's signal handling, so Ctrl+C in the console
     # is only noticed if the interpreter gets a slice of time now and then.

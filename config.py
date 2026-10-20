@@ -43,7 +43,22 @@ DEFAULTS = {
         "scopes": ["ALL", "TEAM"],     # which chat channels to show
         "translate": True,             # translate foreign chat
         "translator": "google",        # "google" | "off"
-                                       # the one thing that uses the network
+        # Players whose chat is hidden: right-click a name in the captions
+        # window to mute it, unmute from Settings.
+        "muted": [],
+    },
+
+    # The reply helper (Ctrl+Alt+R): type English, get it translated and
+    # copied to the clipboard to paste into the game chat yourself. Nothing
+    # is ever typed into the game.
+    "reply": {
+        "language": "ru",
+    },
+
+    # On start, ask GitHub whether a newer release exists and say so. Only
+    # the public "latest release" page is fetched; nothing is sent.
+    "updates": {
+        "check": True,
     },
 
     # Speech-to-text (Whisper via OpenVINO).
@@ -155,6 +170,9 @@ DEFAULTS = {
         "y": 40,
         "width": 720,
         "line_ttl_s": 12,             # seconds a line stays before fading out
+        # "custom" (wherever it was dragged) or a preset: top-left,
+        # top-center, top-right, bottom-left, bottom-center, bottom-right.
+        "position": "custom",
         "click_through": True,        # mouse passes through to the game
     },
 
@@ -171,6 +189,7 @@ DEFAULTS = {
         "toggle_pause": "ctrl+alt+p",
         "toggle_overlay": "ctrl+alt+o",
         "show_window": "ctrl+alt+c",
+        "reply": "ctrl+alt+r",
     },
 
     # Write every caption to a plain-text transcript you can read after the

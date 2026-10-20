@@ -14,10 +14,12 @@ import copy
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
-    QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget, QFormLayout,
+    QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout,
+    QLabel, QMenu, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout,
 )
 
+import autostart
 import config as config_mod
 
 # Every setting this window owns, as (section, key). "Restore defaults" resets
@@ -30,6 +32,16 @@ OWNED = [
     ("vad", "min_utterance_s"), ("vad", "speech_threshold"),
     ("overlay", "font_size"), ("overlay", "width"),
     ("overlay", "max_lines"), ("overlay", "line_ttl_s"),
+    ("overlay", "position"),
+    ("transcript", "enabled"), ("updates", "check"),
+]
+
+# Overlay placements offered in the Position box; see Overlay.PRESETS.
+POSITIONS = [
+    ("custom", "Where I dragged it"),
+    ("top-left", "Top left"), ("top-center", "Top centre"),
+    ("top-right", "Top right"), ("bottom-left", "Bottom left"),
+    ("bottom-center", "Bottom centre"), ("bottom-right", "Bottom right"),
 ]
 
 # Spoken languages offered as checkboxes. English is not here: whether English
@@ -46,6 +58,12 @@ QGroupBox { border:1px solid #2a2f37; border-radius:8px; margin-top:14px;
             padding:12px 10px 8px 10px; font-weight:600; }
 QGroupBox::title { subcontrol-origin: margin; left:10px; padding:0 4px; color:#9fb3c8; }
 QLabel#Hint { color:#8a929c; font-size:12px; }
+QComboBox { background:#1b1f25; border:1px solid #353b45; border-radius:5px;
+            padding:3px 6px; }
+QComboBox QAbstractItemView { background:#1b1f25; selection-background-color:#2d333c; }
+QMenu { background:#1b1f25; border:1px solid #353b45; }
+QMenu::item { padding:4px 18px; }
+QMenu::item:selected { background:#2d333c; }
 QSpinBox, QDoubleSpinBox { background:#1b1f25; border:1px solid #353b45;
             border-radius:5px; padding:3px 6px; min-width:84px; }
 QPushButton { background:#23272e; border:1px solid #353b45; border-radius:6px;
@@ -105,6 +123,7 @@ class SettingsWindow(QWidget):
         root.addWidget(self._build_languages())
         root.addWidget(self._build_voice())
         root.addWidget(self._build_overlay())
+        root.addWidget(self._build_general())
 
         note = QLabel("Changes apply immediately and are saved automatically.")
         note.setObjectName("Hint")
@@ -139,6 +158,14 @@ class SettingsWindow(QWidget):
             "Handy for checking a translation that looks odd.")
         for cb in (self.cb_chat, self.cb_chat_tr, self.cb_english, self.cb_original):
             lay.addWidget(cb)
+        self.bt_muted = _tipped(QPushButton(),
+            "Players whose chat is hidden. Right-click a name in the captions "
+            "window to mute it; pick a name here to show their chat again.")
+        self.bt_muted.clicked.connect(self._muted_menu)
+        row = QHBoxLayout()
+        row.addWidget(self.bt_muted)
+        row.addStretch(1)
+        lay.addLayout(row)
         self.cb_chat.toggled.connect(lambda v: self._set("chat", "show", v))
         self.cb_chat_tr.toggled.connect(lambda v: self._set("chat", "translate", v))
         self.cb_english.toggled.connect(
@@ -245,7 +272,74 @@ class SettingsWindow(QWidget):
              "How many captions the overlay shows at once. The oldest goes first.")
         _row(form, "Seconds per line", self.sp_ttl,
              "How long each caption stays on the overlay before it disappears.")
+        self.co_pos = QComboBox()
+        for key, name in POSITIONS:
+            self.co_pos.addItem(name, key)
+        self.co_pos.currentIndexChanged.connect(
+            lambda _i: self._set("overlay", "position", self.co_pos.currentData()))
+        _row(form, "Position", self.co_pos,
+             "Where on the main screen the overlay sits. At the bottom it "
+             "grows upwards as captions arrive. Dragging the overlay (unlock "
+             "it from the tray menu) puts it wherever you drop it.")
         return box
+
+    def _build_general(self):
+        box = QGroupBox("General")
+        lay = QVBoxLayout(box)
+        self.cb_autostart = _tipped(QCheckBox("Start with Windows"),
+            "Start the app, in the tray, when you sign in to Windows.")
+        if not autostart.supported():
+            self.cb_autostart.setEnabled(False)
+            self.cb_autostart.setToolTip(_tip(
+                "Only available in the built exe, not when run from source."))
+        self.cb_autostart.toggled.connect(self._autostart_toggled)
+        self.cb_transcript = _tipped(QCheckBox("Save transcripts"),
+            "Write every caption to a text file, one per session, so you can "
+            "read back what was said after the match. Saved in the "
+            "\u201ctranscripts\u201d folder in the app's data folder.")
+        self.cb_transcript.toggled.connect(
+            lambda v: self._set("transcript", "enabled", v))
+        self.cb_updates = _tipped(QCheckBox("Tell me when there's a new version"),
+            "On start, look at the app's GitHub releases page and say if a "
+            "newer version is out. Nothing is downloaded or sent.")
+        self.cb_updates.toggled.connect(lambda v: self._set("updates", "check", v))
+        for cb in (self.cb_autostart, self.cb_transcript, self.cb_updates):
+            lay.addWidget(cb)
+        return box
+
+    def _autostart_toggled(self, on):
+        if getattr(self, "_loading", False):
+            return
+        if not autostart.set_enabled(on):
+            self._loading = True
+            self.cb_autostart.setChecked(autostart.is_enabled())
+            self._loading = False
+
+    def _muted(self):
+        return self.cfg.setdefault("chat", {}).setdefault("muted", [])
+
+    def _update_muted_button(self):
+        n = len(self._muted())
+        self.bt_muted.setText(f"Muted players ({n})\u2026" if n else "No muted players")
+        self.bt_muted.setEnabled(bool(n))
+
+    def _muted_menu(self):
+        menu = QMenu(self)
+        for name in sorted(self._muted(), key=str.lower):
+            menu.addAction(f"Unmute {name}").triggered.connect(
+                lambda _c=False, n=name: self._unmute(n))
+        menu.addSeparator()
+        menu.addAction("Unmute everyone").triggered.connect(lambda: self._unmute(None))
+        menu.exec(self.bt_muted.mapToGlobal(self.bt_muted.rect().bottomLeft()))
+
+    def _unmute(self, name):
+        muted = self._muted()
+        if name is None:
+            muted.clear()
+        elif name in muted:
+            muted.remove(name)
+        self._update_muted_button()
+        self._set("chat", "muted", muted)
 
     def _spin(self, lo, hi, step, suffix, section, key):
         sp = QSpinBox()
@@ -325,6 +419,13 @@ class SettingsWindow(QWidget):
             self.sp_width.setValue(int(self._get("overlay", "width")))
             self.sp_lines.setValue(int(self._get("overlay", "max_lines")))
             self.sp_ttl.setValue(int(self._get("overlay", "line_ttl_s")))
+            keys = [k for k, _ in POSITIONS]
+            pos = self._get("overlay", "position")
+            self.co_pos.setCurrentIndex(keys.index(pos) if pos in keys else 0)
+            self.cb_autostart.setChecked(autostart.supported() and autostart.is_enabled())
+            self.cb_transcript.setChecked(bool(self._get("transcript", "enabled")))
+            self.cb_updates.setChecked(bool(self._get("updates", "check")))
+            self._update_muted_button()
         finally:
             self._loading = False
 
