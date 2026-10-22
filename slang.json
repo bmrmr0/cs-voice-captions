@@ -151,16 +151,55 @@
   },
 
   "uk": {
-    "phrases": {},
+    "phrases": {
+      "мінус": "Got one!",
+      "мінус один": "Got one!",
+      "мінус два": "Got two!",
+      "мінус три": "Got three!",
+      "добий": "Finish him!",
+      "добивай": "Finish him!",
+      "погнали": "Let's go!",
+      "ззаду": "Behind you!"
+    },
     "terms": {
       "курва": "fuck! / whore",
       "москал*": "derogatory term for Russians",
-      "дурень": "fool"
+      "дурень": "fool",
+      "срака": "ass",
+      "дупа": "ass",
+      "холера": "damn",
+      "трясця": "damn it (mild)",
+      "бляха": "damn (mild)",
+      "йолоп*": "idiot",
+      "бовдур*": "dumbass",
+      "дідько": "damn it (lit. 'devil')",
+      "капець": "we're screwed",
+      "хрін": "damn (mild)"
     }
   },
 
   "pl": {
-    "phrases": {},
+    "phrases": {
+      "dawaj": "Come on! Let's go!",
+      "dawajcie": "Come on, guys!",
+      "jedziemy": "Let's go!",
+      "rozbrajaj": "Defuse it!",
+      "rozbroj": "Defuse it!",
+      "podkladaj": "Plant it!",
+      "paka": "The bomb!",
+      "ostatni": "Last one!",
+      "jeden": "One left!",
+      "dobij": "Finish him!",
+      "dobijcie": "Finish him!",
+      "uciekaj": "Get out!",
+      "rotuj": "Rotate!",
+      "rotacja": "Rotate!",
+      "eko": "Eco round",
+      "siema": "Hi!",
+      "nara": "Bye!",
+      "spoko": "No worries",
+      "sorki": "Sorry"
+    },
     "terms": {
       "kurw*": "fuck! (expletive) / whore",
       "chuj*": "dick / fuck",
@@ -171,7 +210,19 @@
       "debil*": "moron",
       "cwel*": "severe insult, prison slang",
       "frajer*": "sucker",
-      "zdech*": "drop dead (said of animals)"
+      "zdech*": "drop dead (said of animals)",
+      "paka": "the bomb (CS slang)",
+      "wypierdal*": "fuck off",
+      "zajebi*": "fucking great",
+      "spadaj": "get lost",
+      "dzban*": "idiot (lit. 'jug')",
+      "baran*": "idiot (lit. 'ram')",
+      "kretyn*": "moron",
+      "lamus*": "loser, noob",
+      "leszcz*": "noob, sucker",
+      "ciota": "slur: sissy",
+      "cioto": "slur: sissy",
+      "kurde": "damn (mild)"
     }
   },
 
@@ -209,7 +260,15 @@
   },
 
   "tr": {
-    "phrases": {},
+    "phrases": {
+      "helal": "Well done!",
+      "helal olsun": "Well done!",
+      "eyvallah": "Thanks!",
+      "kanka": "Bro",
+      "kolay gelsin": "Good luck with it",
+      "iyi oyunlar": "Good game",
+      "eko": "Eco round"
+    },
     "terms": {
       "amk": "fuck! (expletive)",
       "aq": "fuck! (expletive)",
@@ -222,7 +281,13 @@
       "pic": "bastard",
       "yarrak": "dick",
       "yarak": "dick",
-      "gerizekali": "idiot"
+      "gerizekali": "idiot",
+      "ibne": "homophobic slur",
+      "salak": "idiot",
+      "aptal": "stupid",
+      "ezik": "loser",
+      "gavat": "pimp (severe insult)",
+      "kanka": "bro"
     }
   },
 

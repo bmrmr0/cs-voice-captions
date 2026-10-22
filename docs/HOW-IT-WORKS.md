@@ -100,8 +100,9 @@ translations are much worse: `выблядок` came back as "pancakes".
 
 ## Reading the log
 
-The log is at `%LOCALAPPDATA%\CSVoiceCaptions\cs-voice-captions.log` and is
-rewritten on every start. Every filter says why it dropped something, with the
+The log is at `%LOCALAPPDATA%\CSVoiceCaptions\cs-voice-captions.log` (tray
+menu → Troubleshooting → Open log). Each start moves the last one to
+`cs-voice-captions.previous.log`. Every filter says why it dropped something, with the
 setting and the value it wanted:
 
 ```

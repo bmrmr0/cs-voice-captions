@@ -374,9 +374,16 @@ class Transcriber:
         what came before (121 of 121 identical both ways).
 
         Only the language is asked for, which costs one encoder pass:
-        ~0.95 s for small, against ~3 s for medium -- so with medium as the
-        main model this stays on small. About 370 MB. Not needed when the
-        main model is already on the CPU."""
+        ~1.1 s for small, against ~4 s for medium -- so with medium as the
+        main model this stays on small. Smaller ones aren't good enough: on
+        121 saved clips tiny found 14 of the 21 Russian ones and called 4
+        others Russian, base 11 and 8; small is the reference. Not needed
+        when the main model is already on the CPU.
+
+        A fresh NPU model gets the language right on its first clip, and
+        a forced-language pass over the clip first gets 26 of 30 right, so
+        neither replaces this: reloading costs ~2.3 CPU-seconds a clip, and
+        26 of 30 is not good enough."""
         if (self._detector is not None or self._detector_failed
                 or self.device.upper().startswith("CPU")):
             return self._detector
@@ -384,9 +391,14 @@ class Transcriber:
             import openvino_genai as ov_genai
             import config as config_mod
             big = (self.scfg.get("model") or "").strip().lower() in ("medium", "large-v3-turbo")
+            # Four threads, not all of them: on 30 clips that kept 2.8 cores
+            # busy instead of 4.1 and did 7% less work in all, for 0.4 s
+            # more per clip, with the same languages. (Two threads: 1.7
+            # cores, but 1.2 s slower.)
             self._detector = ov_genai.WhisperPipeline(
                 self._model_path("small") if big else self._model_dir, device="CPU",
-                CACHE_DIR=os.path.join(config_mod.data_dir(), "device-cache"))
+                CACHE_DIR=os.path.join(config_mod.data_dir(), "device-cache"),
+                INFERENCE_NUM_THREADS=4)
             print("[stt] language detection ready on CPU")
         except Exception as e:  # noqa: BLE001
             self._detector_failed = True

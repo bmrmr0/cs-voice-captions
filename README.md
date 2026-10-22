@@ -92,8 +92,9 @@ has focus; they're also listed in the tray menu and in Settings:
 <br>
 
 Right-click the tray icon to pause, show or hide the overlay, unlock the
-overlay to drag it into place, show or hide text chat, reply in chat, and
-open **Settings** (also a button in the captions window). Hover over any
+overlay to drag it into place, show or hide text chat, reply in chat, open
+**Settings** (also a button in the captions window), see the welcome screen
+again, or open the log and data folder under **Troubleshooting**. Hover over any
 setting for what it does. Changes apply immediately.
 
 Right-click a player's name in the captions window to mute their chat;
@@ -187,8 +188,9 @@ only happens once.
 
 <br>
 
-The log at `%LOCALAPPDATA%\CSVoiceCaptions\cs-voice-captions.log` says what
-was heard, what was captioned, and why anything else was dropped.
+The log (tray menu → Troubleshooting → Open log) says what was heard, what
+was captioned, and why anything else was dropped. The previous session's is
+kept beside it as `cs-voice-captions.previous.log`.
 [How it works](docs/HOW-IT-WORKS.md) explains what it means.
 
 </details>

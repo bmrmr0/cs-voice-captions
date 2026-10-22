@@ -91,11 +91,14 @@ window.
 | `overlay.font_size` | `20` | Text size, in pixels. | Settings |
 | `overlay.width` | `720` | Width, in pixels. | Settings |
 | `overlay.max_lines` | `5` | Captions shown at once. | Settings |
-| `overlay.line_ttl_s` | `12` | Seconds each caption stays. | Settings |
+| `overlay.line_ttl_s` | `12` | Seconds each caption stays, fading out at the end. | Settings |
+| `overlay.opacity` | `65` | How dark the box behind the text is, in %. `0` is no box. | Settings |
 | `overlay.enabled` | `true` | Show the overlay over the game. Also `Ctrl+Alt+O` and the tray menu, and remembered from either. | Settings |
-| `overlay.position` | `"custom"` | `"custom"` (where you dragged it), or `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` on the main screen. At the bottom it grows upwards. | Settings |
+| `overlay.position` | `"custom"` | `"custom"` (where you dragged it), or `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` on the screen CS2 is on (the main screen if CS2 isn't running). At the bottom it grows upwards. | Settings |
 | `overlay.x`, `overlay.y` | `40` | Position. Set by dragging the unlocked overlay. | |
 | `history.max_lines` | `500` | Lines kept in the captions window. | |
+| `windows.settings`, `windows.reply` | `""` | Where the Settings and reply windows were left. Saved when you move them. | |
+| `welcome.seen` | `false` | Whether the welcome window has been shown. Set back to `false` to see it on the next start (it's also in the tray menu). | |
 | `history.geometry` | `""` | Where the captions window was left, and its size. Saved when you move or resize it; delete it to reset. | |
 | `hotkeys.toggle_pause` | `"ctrl+alt+p"` | Pause / resume. | |
 | `hotkeys.toggle_overlay` | `"ctrl+alt+o"` | Show / hide the overlay. | |
@@ -130,7 +133,7 @@ the exe, the entry follows it the next time you run it.
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `vad.save_clips` | `false` | Save every detected clip as a `.wav` in `clips/`, named after the rule that dropped it, to see what a filter is throwing away. Capped at 400 files. They are recordings of other players, so delete them when you're done. |
+| `vad.save_clips` | `false` in released exes, `true` in development builds | Save every detected clip as a `.wav` in `clips/`, named after the rule that dropped it, to see what a filter is throwing away. Capped at 400 files. They are recordings of other players, so delete them when you're done. |
 | `vad.backend` | `"silero"` | The voice detector. `"webrtc"` is an older one that can't tell gunfire from speech; only for comparison. |
 | `vad.aggressiveness` | `2` | Only used by the `"webrtc"` detector. |
 

@@ -34,7 +34,7 @@ OWNED = [
     ("vad", "min_utterance_s"), ("vad", "speech_threshold"), ("stt", "model"),
     ("overlay", "font_size"), ("overlay", "width"),
     ("overlay", "max_lines"), ("overlay", "line_ttl_s"),
-    ("overlay", "position"), ("overlay", "enabled"),
+    ("overlay", "position"), ("overlay", "enabled"), ("overlay", "opacity"),
     ("transcript", "enabled"), ("updates", "check"),
 ]
 
@@ -307,19 +307,24 @@ class SettingsWindow(QWidget):
         self.sp_width = self._spin(400, 1600, 20, " px", "overlay", "width")
         self.sp_lines = self._spin(1, 10, 1, "", "overlay", "max_lines")
         self.sp_ttl = self._spin(3, 30, 1, " s", "overlay", "line_ttl_s")
+        self.sp_opacity = self._spin(0, 100, 5, " %", "overlay", "opacity")
         _row(form, "Text size", self.sp_font, "Size of the overlay's text.")
         _row(form, "Width", self.sp_width, "How wide the overlay is; longer captions wrap.")
         _row(form, "Lines on screen", self.sp_lines,
              "How many captions the overlay shows at once. The oldest goes first.")
         _row(form, "Seconds per line", self.sp_ttl,
-             "How long each caption stays on the overlay before it disappears.")
+             "How long each caption stays on the overlay before it fades out.")
+        _row(form, "Background", self.sp_opacity,
+             "How dark the box behind the text is. 0 % is no box at all; "
+             "higher is easier to read over a bright map.")
         self.co_pos = QComboBox()
         for key, name in POSITIONS:
             self.co_pos.addItem(name, key)
         self.co_pos.currentIndexChanged.connect(
             lambda _i: self._set("overlay", "position", self.co_pos.currentData()))
         _row(form, "Position", self.co_pos,
-             "Where on the main screen the overlay sits. At the bottom it "
+             "Where the overlay sits on the screen CS2 is on (the main screen "
+             "when CS2 isn't running). At the bottom it "
              "grows upwards as captions arrive. Dragging the overlay (unlock "
              "it from the tray menu) puts it wherever you drop it.")
         return box
@@ -482,6 +487,7 @@ class SettingsWindow(QWidget):
             self.sp_width.setValue(int(self._get("overlay", "width")))
             self.sp_lines.setValue(int(self._get("overlay", "max_lines")))
             self.sp_ttl.setValue(int(self._get("overlay", "line_ttl_s")))
+            self.sp_opacity.setValue(int(self._get("overlay", "opacity")))
             self.cb_overlay.setChecked(bool(self._get("overlay", "enabled")))
             model = self._get("stt", "model")
             mkeys = [k for k, _ in MODELS]

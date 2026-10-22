@@ -24,6 +24,33 @@
 - An issue form for suggesting slang dictionary entries.
 - **The overlay is on by default**, with a switch for it in Settings. It
   was off until turned on from the tray, which nothing pointed out.
+- **Welcome window on the first start:** where captions appear, what CS2
+  needs for the overlay (Fullscreen Windowed) and for text chat
+  (`-condebug`, with whether it's set), and the hotkeys. Reopen it from the
+  tray menu (Welcome & help).
+- **Reply in the language you last heard.** The reply helper picks the
+  language of the last foreign voice or chat line; choosing one by hand
+  still wins until a different language is heard.
+- **The overlay goes on CS2's monitor.** Position presets use the screen CS2
+  is on, not always the main one.
+- **Overlay background setting** (0–100 %, 0 = no box), and lines fade out
+  at the end instead of vanishing.
+- **Tray → Troubleshooting → Open log / Open data folder.** The previous
+  session's log is kept as `cs-voice-captions.previous.log`.
+- **Settings and the reply window remember where you left them.**
+- **More slang:** Polish, Ukrainian and Turkish callouts ("dawaj", "мінус
+  два", "helal olsun") and insults. Lines typed in plain Latin letters are
+  checked against the dictionaries of the languages picked in Settings.
+- **Polish typed without Polish letters is translated.** Plain-letter chat
+  was taken for English and never sent; common Polish words now give it away.
+- **Less CPU.** The app runs at below-normal priority so CS2 always comes
+  first; the voice detector uses one thread (half the constant load) and the
+  language step four (2.8 cores busy instead of 4.1).
+- **No more SciPy:** resampling CS2's audio is plain NumPy, streaming without
+  a seam every 30 ms (the old code restarted its filter on each chunk). It
+  matches one-piece resampling exactly, and the exe is about 30 MB smaller.
+- **Voice clips are saved only in development builds**; released exes never
+  record them by default.
 - **The overlay shows only what needs translating:** chat translated from
   a language picked in Settings, and voice captions. English chat, chat in
   other languages and status lines stay in the captions window.

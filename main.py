@@ -31,8 +31,9 @@ def _start_file_log():
     """Mirror stdout/stderr into a log file in the app's data folder.
 
     The windowed exe has no console at all, so without this every diagnostic
-    the troubleshooting docs mention would be lost. Kept small: one file,
-    truncated each run, best-effort.
+    the troubleshooting docs mention would be lost. Kept small: this run's
+    log plus the previous run's (cs-voice-captions.previous.log), so a
+    problem is still on record after restarting to get past it.
 
     In the data folder (%LOCALAPPDATA%\CSVoiceCaptions, or beside the exe in
     portable mode) rather than next to the exe: the exe is meant to be one
@@ -41,8 +42,12 @@ def _start_file_log():
     """
     try:
         import config as config_mod
-        log = open(os.path.join(config_mod.data_dir(), "cs-voice-captions.log"), "w",
-                   encoding="utf-8", errors="replace", buffering=1)
+        path = os.path.join(config_mod.data_dir(), "cs-voice-captions.log")
+        try:
+            os.replace(path, path[:-len(".log")] + ".previous.log")
+        except OSError:
+            pass                 # first run, or the old log is still open
+        log = open(path, "w", encoding="utf-8", errors="replace", buffering=1)
     except Exception:  # noqa: BLE001
         return
 
@@ -116,7 +121,7 @@ from audio import SoundcardSource, ProcessSource  # noqa: E402
 from stt import Transcriber                       # noqa: E402
 from transcript import TranscriptWriter           # noqa: E402
 from ui import (Bridge, Overlay, History, TrayController,  # noqa: E402
-                CondebugReminder, should_remind_condebug)
+                CondebugReminder, should_remind_condebug, bring_to_front)
 from settings_window import SettingsWindow        # noqa: E402
 from reply_window import ReplyWindow              # noqa: E402
 import autostart                                  # noqa: E402
@@ -265,9 +270,14 @@ class ChatWorker(threading.Thread):
             gloss = []
             slang = tcfg.get("slang", True)
             langs = _guess_sources(text)
+            # The dictionaries to look in. A line in plain Latin letters
+            # gives no clue to its language ("helal olsun" could be anyone's),
+            # so it is also checked against the languages picked in Settings.
+            dict_langs = langs or [str(c).lower() for c in tcfg.get("languages", [])]
             # A message that is nothing but a known slang phrase gets its
             # meaning directly, and costs no translation request.
-            meaning = glossary.get().phrase(text, langs) if slang else None
+            meaning, meaning_lang = (glossary.get().match_phrase(text, dict_langs)
+                                     if slang else (None, None))
             swapped = []
             # What the line was written in, so the overlay can show only
             # the languages picked in Settings: what the translator
@@ -275,9 +285,13 @@ class ChatWorker(threading.Thread):
             source_lang = langs[0] if langs else ""
             if meaning:
                 original, text, translated = text, meaning, True
-            # Skip pointless translation of plain-ASCII chat when target is English.
+                if meaning_lang and meaning_lang != "any":
+                    source_lang = meaning_lang
+            # Plain-ASCII chat is taken to be English, and not sent to be
+            # translated into English -- unless it has words that mark it
+            # as something else (Polish typed without its letters).
             elif (translator and ccfg.get("translate", True)
-                    and not (target_is_en and text.isascii())):
+                    and not (target_is_en and text.isascii() and not langs)):
                 # The translator gets slang already turned into English
                 # ("с вх" -> "с wallhack"); the caption still shows what the
                 # player actually typed as the original.
@@ -298,7 +312,7 @@ class ChatWorker(threading.Thread):
             # lines are never translated, but transliterated swearing
             # ("cyka blyat") is still worth explaining.
             if slang and not meaning:
-                gloss = glossary.get().terms(original or text, langs, skip=swapped)
+                gloss = glossary.get().terms(original or text, dict_langs, skip=swapped)
             scope = ev.get("scope", "")
             print(f"[chat:{scope}] {ev.get('name', '?')}: {text}"
                   + (f"   (from: {original})" if original else "")
@@ -334,8 +348,25 @@ def for_overlay(r, cfg):
     return not picked or lang in picked
 
 
+def _lower_priority():
+    """Run below normal priority, so whenever CS2 and the app both want the
+    CPU, Windows gives it to the game. The app's work is bursty (about a
+    second of CPU per clip) and a caption arriving a moment later costs
+    nothing; a stutter in the game does."""
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        BELOW_NORMAL_PRIORITY_CLASS = 0x4000
+        k32 = ctypes.windll.kernel32
+        k32.SetPriorityClass(k32.GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS)
+    except Exception as e:  # noqa: BLE001
+        print(f"[main] could not lower priority: {e}")
+
+
 def main():
     cfg = config_mod.load()
+    _lower_priority()
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -354,7 +385,8 @@ def main():
         cfg["overlay"]["x"], cfg["overlay"]["y"] = int(x), int(y)
         config_mod.save(cfg)
 
-    overlay = Overlay(cfg["overlay"], on_move=save_overlay_pos)
+    overlay = Overlay(cfg["overlay"], on_move=save_overlay_pos,
+                      process_name=cfg.get("capture", {}).get("cs2_process_name", "cs2.exe"))
 
     def on_setting_change(section, key):
         # Everything else the window changes is read live by its consumer;
@@ -372,6 +404,10 @@ def main():
 
     settings = SettingsWindow(cfg, on_change=on_setting_change)
     reply = ReplyWindow(cfg)
+    from ui import GeometryKeeper
+    windows = cfg.setdefault("windows", {})
+    GeometryKeeper(settings, windows, "settings", lambda: config_mod.save(cfg))
+    GeometryKeeper(reply, windows, "reply", lambda: config_mod.save(cfg))
     autostart.repair()          # the exe may have moved since it was turned on
 
     def mute_player(name):
@@ -390,6 +426,9 @@ def main():
                       on_clear=overlay.clear, on_mute=mute_player,
                       on_geometry=save_history_geometry)
 
+    # The reply helper offers the language last heard.
+    bridge.new_caption.connect(
+        lambda r: reply.heard(r.get("lang")) if r.get("translated") else None)
     bridge.new_caption.connect(
         lambda r: (overlay.add_caption(r) if for_overlay(r, cfg) else None,
                    history.add_caption(r), writer.add_caption(r)))
@@ -483,6 +522,18 @@ def main():
     # it's added (or the user says stop), or once when it can't be told.
     reminders = []
 
+    def show_welcome(status=None, check=False):
+        from welcome_window import WelcomeWindow
+        if check:
+            status = chat_log.condebug_status(chat_log.find_console_log(
+                cfg.get("chat", {}).get("console_log_path", "")))
+        dlg = WelcomeWindow(cfg, status, on_settings=settings.open)
+        dlg.finished.connect(lambda _r: reminders.remove(dlg) if dlg in reminders else None)
+        reminders.append(dlg)            # keep it alive while it is open
+        bring_to_front(dlg)
+
+    tray.set_help(lambda: show_welcome(check=True))
+
     def remind_condebug():
         ccfg = cfg.setdefault("chat", {})
         if not ccfg.get("enabled", True):
@@ -491,6 +542,14 @@ def main():
             chat_log.find_console_log(ccfg.get("console_log_path", "")))
         print("[chat] -condebug in CS2's launch options: "
               + {True: "yes", False: "no", None: "can't tell"}[status])
+        if not cfg.setdefault("welcome", {}).get("seen"):
+            # The first start's welcome covers -condebug too; one window,
+            # not two.
+            cfg["welcome"]["seen"] = True
+            ccfg["condebug_tip_seen"] = True
+            config_mod.save(cfg)
+            show_welcome(status)
+            return
         if not should_remind_condebug(status, ccfg):
             return
         dlg = CondebugReminder(missing=status is False)

@@ -59,6 +59,90 @@ def connection_look(state, detail="", paused=False):
     return color, text
 
 
+def game_screen(process_name="cs2.exe"):
+    """The QScreen CS2's window is on, or None if it isn't running (or this
+    isn't Windows). Matched by the monitor's top-left corner: Qt keeps each
+    screen's corner where Windows has it and only scales the size, so
+    display scaling doesn't get in the way (screen names don't match --
+    Qt gives the model, Windows a device path)."""
+    if not sys.platform.startswith("win"):
+        return None
+    try:
+        import ctypes
+        import ctypes.wintypes as W
+        import psutil
+        pids = {p.pid for p in psutil.process_iter(["name"])
+                if (p.info["name"] or "").lower() == process_name.lower()}
+        if not pids:
+            return None
+        user32 = ctypes.windll.user32
+        found = []
+
+        @ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
+        def visit(hwnd, _):
+            pid = W.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value in pids and user32.IsWindowVisible(hwnd):
+                found.append(hwnd)
+                return False
+            return True
+
+        user32.EnumWindows(visit, 0)
+        if not found:
+            return None
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", W.DWORD), ("rcMonitor", W.RECT),
+                        ("rcWork", W.RECT), ("dwFlags", W.DWORD)]
+
+        user32.MonitorFromWindow.restype = W.HMONITOR
+        monitor = user32.MonitorFromWindow(found[0], 2)    # MONITOR_DEFAULTTONEAREST
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(info)
+        if not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return None
+        left, top = info.rcMonitor.left, info.rcMonitor.top
+        screens = QGuiApplication.screens()
+        if screens:
+            return min(screens, key=lambda s: abs(s.geometry().x() - left)
+                       + abs(s.geometry().y() - top))
+    except Exception as e:  # noqa: BLE001
+        print(f"[ui] could not tell which screen CS2 is on: {e}")
+    return None
+
+
+class GeometryKeeper(QObject):
+    """Remembers where a window was left: restores it now, and saves it half
+    a second after a move or resize ends (not on every pixel of a drag).
+    store[key] holds Qt's saveGeometry() as base64; save() persists it."""
+
+    def __init__(self, widget, store, key, save):
+        super().__init__(widget)
+        self._w, self._store, self._key, self._save = widget, store, key, save
+        saved = store.get(key)
+        if saved:
+            from PySide6.QtCore import QByteArray
+            # Qt moves it back onto a screen if that monitor is gone.
+            widget.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii")))
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(500)
+        self._timer.timeout.connect(self._store_now)
+        widget.installEventFilter(self)
+
+    def eventFilter(self, obj, ev):
+        from PySide6.QtCore import QEvent
+        if ev.type() in (QEvent.Move, QEvent.Resize) and self._w.isVisible():
+            self._timer.start()
+        return False
+
+    def _store_now(self):
+        if self._w.isMinimized():
+            return              # keep the place it will be restored to
+        self._store[self._key] = bytes(self._w.saveGeometry().toBase64()).decode("ascii")
+        self._save()
+
+
 def bring_to_front(widget):
     """Show `widget` restored and in front, with the keyboard focus.
 
@@ -117,9 +201,11 @@ def _gloss_html(r, size_px, block):
 
 
 class Overlay(QWidget):
-    def __init__(self, ocfg, on_move=None):
+    def __init__(self, ocfg, on_move=None, process_name="cs2.exe"):
         super().__init__(None)
         self.ocfg = ocfg
+        self._process = process_name
+        self._screen, self._screen_checked = None, 0.0
         self._on_move = on_move          # called with (x, y) after a drag
         self._locked = ocfg.get("click_through", True)
         self._drag_from = None
@@ -143,9 +229,10 @@ class Overlay(QWidget):
         self._layout.setAlignment(Qt.AlignTop)
 
         self._items = []  # list of (QLabel, expiry_ts)
+        # Runs only while lines are on screen; an empty overlay costs nothing.
         self._timer = QTimer(self)
+        self._timer.setInterval(250)
         self._timer.timeout.connect(self._prune)
-        self._timer.start(500)
         self._clamp_to_screen()
         self._place()
         self.move(self._x, self._y)
@@ -185,7 +272,7 @@ class Overlay(QWidget):
                   else "2px solid rgba(0,0,0,0)")
         return (
             "QLabel {"
-            " background: rgba(0,0,0,165);"
+            f" background: rgba(0,0,0,{self._alpha()});"
             " color: #ffffff;"
             " padding: 6px 10px;"
             " border-radius: 8px;"
@@ -194,6 +281,10 @@ class Overlay(QWidget):
             " font-family: 'Segoe UI', sans-serif;"
             "}"
         )
+
+    def _alpha(self):
+        pct = max(0, min(100, int(self.ocfg.get("opacity", 65))))
+        return round(pct * 2.55)
 
     def _mk_label(self, html):
         lbl = QLabel(html)
@@ -300,12 +391,31 @@ class Overlay(QWidget):
             old, _ = self._items.pop(0)
             self._drop(old)
         self._reflow()
-        # Note: we intentionally do NOT auto-show here. The overlay is opt-in
-        # and its visibility is controlled from the tray menu.
+        if not self._timer.isActive():
+            self._timer.start()
+        # Never shows the overlay by itself: whether it is on is the user's
+        # choice (tray, hotkey, Settings).
 
     def _drop(self, lbl):
         self._layout.removeWidget(lbl)
         lbl.deleteLater()
+
+    FADE_S = 0.8
+
+    def _fade(self, lbl, seconds):
+        """Fade a line out over its last moments instead of cutting it."""
+        if getattr(lbl, "_fading", None) is not None:
+            return
+        from PySide6.QtCore import QPropertyAnimation
+        from PySide6.QtWidgets import QGraphicsOpacityEffect
+        effect = QGraphicsOpacityEffect(lbl)
+        lbl.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", lbl)
+        anim.setDuration(max(50, int(seconds * 1000)))
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.start()
+        lbl._fading = anim
 
     def _clamp_to_screen(self):
         """Keep the overlay reachable if the saved position came from a monitor
@@ -321,7 +431,7 @@ class Overlay(QWidget):
         self._y = min(max(self._y, geo.y()), geo.y() + max(0, geo.height() - 100))
 
     # Where a preset puts the overlay, as (horizontal, vertical) on the
-    # primary screen. "custom" is wherever it was last dragged.
+    # screen CS2 is on. "custom" is wherever it was last dragged.
     PRESETS = {
         "top-left": ("left", "top"), "top-center": ("center", "top"),
         "top-right": ("right", "top"), "bottom-left": ("left", "bottom"),
@@ -334,7 +444,7 @@ class Overlay(QWidget):
         edge fixed, so the overlay grows upwards as captions arrive instead
         of running off the bottom of the screen."""
         where = self.PRESETS.get(self._preset)
-        screen = QGuiApplication.primaryScreen()
+        screen = self._target_screen()
         if where is None or screen is None:
             return
         geo = screen.availableGeometry()
@@ -345,6 +455,15 @@ class Overlay(QWidget):
                    "right": geo.x() + geo.width() - self._w - m}[h]
         self._y = (geo.y() + m if v == "top"
                    else geo.y() + geo.height() - self.height() - m)
+
+    def _target_screen(self):
+        """CS2's monitor, else the main one. Looked up at most every few
+        seconds: captions can arrive several a second."""
+        now = time.monotonic()
+        if now - self._screen_checked > 5.0:
+            self._screen_checked = now
+            self._screen = game_screen(self._process)
+        return self._screen or QGuiApplication.primaryScreen()
 
     def _reflow(self):
         self.adjustSize()
@@ -362,10 +481,14 @@ class Overlay(QWidget):
                 self._drop(lbl)
                 changed = True
             else:
+                if exp - now <= self.FADE_S:
+                    self._fade(lbl, exp - now)
                 kept.append((lbl, exp))
         self._items = kept
         if changed:
             self._reflow()
+        if not self._items:
+            self._timer.stop()
 
 
 class History(QWidget):
@@ -561,6 +684,17 @@ class TrayController:
         self._update_url = None
         self.act_update.triggered.connect(self._open_update)
 
+        act_log = QAction("Open log", self.menu)
+        act_log.triggered.connect(lambda: self._open_data("cs-voice-captions.log"))
+        act_folder = QAction("Open data folder", self.menu)
+        act_folder.triggered.connect(lambda: self._open_data(""))
+        self._troubleshoot = QMenu("Troubleshooting", self.menu)
+        self._troubleshoot.addAction(act_log)
+        self._troubleshoot.addAction(act_folder)
+
+        self.act_help = QAction("Welcome && help…", self.menu)
+        self.act_help.setVisible(False)            # until set_help() wires it
+
         act_settings = QAction("Settings…", self.menu)
         if on_settings is not None:
             act_settings.triggered.connect(on_settings)
@@ -576,6 +710,8 @@ class TrayController:
         if on_reply is not None:
             self.menu.addAction(act_reply)
         self.menu.addAction(act_settings)
+        self.menu.addAction(self.act_help)
+        self.menu.addMenu(self._troubleshoot)
         self.menu.addSeparator()
         self.menu.addAction(act_quit)
         # The settings window can change the same option, so re-read it each
@@ -628,6 +764,22 @@ class TrayController:
         self._sync_labels()
         if self._on_chat_toggle:
             self._on_chat_toggle(self._chat_cfg["show"])
+
+    @staticmethod
+    def _open_data(name):
+        """Open a file in the app's data folder (or the folder itself) the
+        way Explorer would."""
+        import os
+        import config as config_mod
+        path = os.path.join(config_mod.data_dir(), name) if name else config_mod.data_dir()
+        try:
+            os.startfile(path)
+        except OSError as e:
+            print(f"[ui] could not open {path}: {e}")
+
+    def set_help(self, callback):
+        self.act_help.triggered.connect(callback)
+        self.act_help.setVisible(True)
 
     def notify_update(self, tag, url):
         """Slot for Bridge.update_available: say once, and keep a menu item

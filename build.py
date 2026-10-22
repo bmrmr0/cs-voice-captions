@@ -15,6 +15,7 @@ survive into a published release.
 """
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -34,7 +35,6 @@ HIDDEN_IMPORTS = [
     "psutil",
     "deep_translator",
     "requests",
-    "scipy.signal",
     "openvino",
     "openvino_genai",
     "huggingface_hub",
@@ -57,6 +57,9 @@ EXCLUDES = [
     # Silero runs on OpenVINO; the silero_vad package (and the onnxruntime it
     # imports) is only where the build finds the model file.
     "silero_vad", "onnxruntime",
+    # Resampling is plain NumPy now (audio._Resampler); keep SciPy out even
+    # if something in the venv would pull it in. 30 MB.
+    "scipy",
     # An optional accelerator for the one-time model download; without it
     # huggingface_hub downloads over plain HTTPS.
     "hf_xet",
@@ -235,6 +238,14 @@ def main():
     # The slang dictionary ships inside the exe; glossary.py looks for it at
     # the bundle root, and merges the user's own copy over it.
     cmd += ["--add-data", f"{os.path.join(ROOT, 'slang.json')}{os.pathsep}."]
+
+    # Release or development build (config.is_release_build): development
+    # builds save voice clips for working on the filters; releases don't.
+    flags = os.path.join(tempfile.mkdtemp(prefix="cvc-build-"), "build.json")
+    with open(flags, "w", encoding="utf-8") as f:
+        json.dump({"release": bool(args.release)}, f)
+    cmd += ["--add-data", f"{flags}{os.pathsep}."]
+    print(f"[build] {'release' if args.release else 'development'} build")
 
     for pkg in COLLECT_ALL:
         cmd += ["--collect-all", pkg]

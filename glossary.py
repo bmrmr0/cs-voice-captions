@@ -190,19 +190,23 @@ class Glossary:
     def phrase(self, text, langs):
         """The meaning if `text` is, as a whole, a known phrase -- or a
         known term on its own; else None."""
+        return self.match_phrase(text, langs)[0]
+
+    def match_phrase(self, text, langs):
+        """(meaning, language of the table it came from), or (None, None)."""
         with self._lock:
             self._maybe_reload()
             for table in self._tables_for(langs):
                 meaning = table.phrase(text)
                 if meaning:
-                    return meaning
+                    return meaning, table.lang
             for table in self._tables_for(list(langs) + ["any"]):
                 meaning = table.whole_term(text)
                 if meaning:
                     # Terms are written as glosses ("fucking moron"); as a
                     # caption it reads better capitalised.
-                    return meaning[:1].upper() + meaning[1:]
-        return None
+                    return meaning[:1].upper() + meaning[1:], table.lang
+        return None, None
 
     def pretranslate(self, text, langs):
         """`text` with known slang swapped for its English, ready for the

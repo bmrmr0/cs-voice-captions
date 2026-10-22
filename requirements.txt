@@ -12,7 +12,6 @@ huggingface-hub>=0.25
 
 # Audio capture + DSP
 numpy>=1.24
-scipy>=1.10
 soundcard>=0.4.3
 webrtcvad-wheels>=2.0.14
 proc-tap>=1.1.1          # per-process WASAPI loopback (CS2-only audio)

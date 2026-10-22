@@ -55,6 +55,18 @@ DEFAULTS = {
         "language": "ru",
     },
 
+    # Where the settings and reply windows were left (the captions window's
+    # place is history.geometry). Saved by moving them.
+    "windows": {
+        "settings": "",
+        "reply": "",
+    },
+
+    # The welcome window shown on the first start (tray: Welcome & help).
+    "welcome": {
+        "seen": False,
+    },
+
     # On start, ask GitHub whether a newer release exists and say so. Only
     # the public "latest release" page is fetched; nothing is sent.
     "updates": {
@@ -139,7 +151,8 @@ DEFAULTS = {
         "preroll_ms": 300,            # audio kept from just before speech starts
         # Write every captured clip to <app dir>/clips as a .wav, named with
         # the rule that discarded it. For working out what the gates are
-        # actually throwing away; off by default, and capped at 400 files.
+        # actually throwing away. Capped at 400 files. On in development
+        # builds and off in released ones: see is_release_build() below.
         "save_clips": False,
     },
 
@@ -164,6 +177,7 @@ DEFAULTS = {
         "y": 40,
         "width": 720,
         "line_ttl_s": 12,             # seconds a line stays before fading out
+        "opacity": 65,                # background darkness behind the text, %
         # "custom" (wherever it was dragged) or a preset: top-left,
         # top-center, top-right, bottom-left, bottom-center, bottom-right.
         "position": "custom",
@@ -208,6 +222,23 @@ def bundle_dir():
     """Where read-only data bundled *inside* the exe is unpacked at runtime.
     Same as app_dir() when running from source."""
     return getattr(sys, "_MEIPASS", None) or app_dir()
+
+
+def is_release_build():
+    """True in an exe built with `build.py --release` -- the published one.
+    Running from source, or any other build, is a development build."""
+    try:
+        with open(os.path.join(bundle_dir(), "build.json"), encoding="utf-8") as f:
+            return bool(json.load(f).get("release"))
+    except (OSError, ValueError):
+        return False
+
+
+# Saving clips is for working on the filters: on in development builds, off
+# in the published exe, where it would quietly record other players. Set in
+# DEFAULTS rather than at load, so config.json only ever gets it if you
+# choose a value yourself.
+DEFAULTS["vad"]["save_clips"] = not is_release_build()
 
 
 def data_dir():

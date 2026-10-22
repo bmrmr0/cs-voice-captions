@@ -73,7 +73,11 @@ class _SileroVAD:
         if not path or not os.path.isfile(path):
             raise FileNotFoundError("silero model not found")
         core = ov.Core()
-        self._req = core.compile_model(core.read_model(path), "CPU").create_infer_request()
+        # One thread: it runs 31 times a second for as long as CS2 is open,
+        # and waking a pool of threads each time cost twice the CPU (8% of a
+        # core against 4%, measured in real time) for the same answers.
+        self._req = core.compile_model(core.read_model(path), "CPU",
+                                       {"INFERENCE_NUM_THREADS": 1}).create_infer_request()
         self._sr = np.array(SAMPLE_RATE, dtype=np.int64)
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
         self._buf = np.zeros(0, dtype=np.float32)
@@ -299,34 +303,63 @@ class _Segmenter:
         return None
 
 
-class _Resampler:
-    """Streaming resample from an arbitrary source rate to SAMPLE_RATE.
+def _lowpass(up, down):
+    """The anti-aliasing filter scipy's resample_poly uses by default: a
+    Kaiser-windowed sinc (beta 5), cut off at the lower of the two Nyquist
+    rates, 20 * max(up, down) + 1 taps, gain `up` to make up for the zeros
+    upsampling puts in."""
+    q = max(up, down)
+    half = 10 * q
+    n = np.arange(-half, half + 1, dtype=np.float64)
+    h = np.sinc(n / q) / q * np.kaiser(2 * half + 1, 5.0)
+    return h / h.sum() * up
 
-    Uses the exact integer ratio (48k -> 16k is 1/3) with polyphase
-    anti-aliasing, carrying a remainder between chunks so no samples are lost
-    at chunk boundaries and the filter phase stays continuous.
+
+class _Resampler:
+    """Streaming resample from an arbitrary source rate to SAMPLE_RATE, by the
+    exact integer ratio (48k -> 16k is 1/3, 44.1k -> 16k is 160/441).
+
+    Polyphase FIR with its history carried from chunk to chunk, so the
+    stream comes out as if resampled in one piece -- no seam every 30 ms.
+    Plain NumPy: SciPy was 30 MB of the exe for this alone.
     """
 
     def __init__(self, src_rate):
         from math import gcd
-        from scipy.signal import resample_poly
-        self._rp = resample_poly
         g = gcd(int(src_rate), SAMPLE_RATE)
         self.up = SAMPLE_RATE // g
         self.down = int(src_rate) // g
-        self._carry = np.zeros(0, dtype=np.float32)
+        h = _lowpass(self.up, self.down)
+        taps = -(-len(h) // self.up)                 # per phase, rounded up
+        h = np.concatenate([h, np.zeros(taps * self.up - len(h))])
+        # phases[p][i] = h[p + up*i]: the taps that land on real samples
+        # when the output falls at phase p of the upsampled grid.
+        self._phases = h.reshape(taps, self.up).T.astype(np.float32)
+        self._taps = taps
+        self._hist = np.zeros(taps - 1, dtype=np.float32)
+        self._seen = 0          # input samples taken in so far
+        self._next = 0          # index of the next output sample
 
     def process(self, mono):
+        mono = np.asarray(mono, dtype=np.float32)
         if self.up == 1 and self.down == 1:
-            return mono.astype(np.float32)
-        buf = np.concatenate([self._carry, mono]) if self._carry.size else mono
-        # Keep a whole number of "down" blocks so the phase stays continuous.
-        n = (len(buf) // self.down) * self.down
-        if n == 0:
-            self._carry = buf
+            return mono
+        x = np.concatenate([self._hist, mono])
+        start = self._seen - len(self._hist)        # stream index of x[0]
+        self._seen += len(mono)
+        # Output m sits at m*down on the upsampled grid: input sample
+        # base = m*down // up, phase p = m*down % up. It can be made once
+        # sample `base` has arrived.
+        last = (self._seen * self.up - 1) // self.down
+        m = np.arange(self._next, last + 1, dtype=np.int64)
+        self._next = last + 1
+        self._hist = x[len(x) - (self._taps - 1):] if self._taps > 1 else x[:0]
+        if not len(m):
             return np.zeros(0, dtype=np.float32)
-        usable, self._carry = buf[:n], buf[n:].copy()
-        return self._rp(usable, self.up, self.down).astype(np.float32)
+        pos = m * self.down
+        base, phase = pos // self.up - start, pos % self.up
+        idx = base[:, None] - np.arange(self._taps)[None, :]
+        return np.einsum("ij,ij->i", x[idx], self._phases[phase]).astype(np.float32)
 
 
 class _Framer:

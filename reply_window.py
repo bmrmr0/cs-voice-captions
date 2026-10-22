@@ -40,6 +40,10 @@ class ReplyWindow(QWidget):
         super().__init__()
         self.cfg = cfg
         self._request = 0
+        # The last foreign language heard in voice or chat: the likeliest
+        # one to reply in. Picking a language by hand overrides it until
+        # another one is heard.
+        self._heard = None
         self.setObjectName("Reply")
         self.setWindowTitle("Reply in chat")
         self.setStyleSheet(_STYLE)
@@ -83,7 +87,16 @@ class ReplyWindow(QWidget):
 
     def _lang_changed(self, _i):
         self._rcfg()["language"] = self.lang.currentData()
+        self._heard = None
         config_mod.save(self.cfg)
+
+    def heard(self, lang):
+        """Note a language just heard (a caption's source language)."""
+        code = (lang or "").lower().split("-")[0]
+        if code in dict(LANGUAGES) and code != (self._rcfg().get("language") or ""):
+            self._heard = code
+        elif code == self._rcfg().get("language"):
+            self._heard = None
 
     def _reset_hint(self):
         self.hint.setText("The translation is copied for you to paste into the "
@@ -91,11 +104,15 @@ class ReplyWindow(QWidget):
                           "Esc closes.")
 
     def open(self):
-        code = self._rcfg().get("language", "ru")
+        code = self._heard or self._rcfg().get("language", "ru")
         codes = [c for c, _ in LANGUAGES]
         self.lang.blockSignals(True)
         self.lang.setCurrentIndex(codes.index(code) if code in codes else 0)
         self.lang.blockSignals(False)
+        self._reset_hint()
+        if self._heard:
+            self.hint.setText(f"{dict(LANGUAGES)[self._heard]}, because it was "
+                              "the last language heard. " + self.hint.text())
         self.input.selectAll()
         from ui import bring_to_front
         bring_to_front(self)

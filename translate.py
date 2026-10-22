@@ -69,6 +69,25 @@ _MYMEMORY_CODES = {
 }
 
 
+# Polish is often typed without its own letters ("dzieki" for "dzięki"),
+# and chat in plain Latin letters is otherwise taken for English and never
+# sent to be translated. These common words give it away. Each is Polish
+# (or Polish with the accents dropped) and next to never typed in English
+# chat; short ambiguous ones ("to", "na", "co", "ja", "tak", "jak") are left
+# out on purpose.
+_POLISH_WORDS = frozenset("""
+nie jest sie jestem jestes jestesmy mam masz mamy czy juz jeszcze tylko
+bardzo dobra dobrze kurwa kurwy kurde chuj pierdole spierdalaj jebac gdzie
+tutaj teraz szybko pomoz pomocy dzieki dziekuje prosze ktory ktora cos nic
+wiem wiesz mnie ciebie tego jego zaraz idz ide idziemy chodz chodzcie czekaj
+ktos dlaczego czemu jezu boze gramy mecz runda lewo prawo siema nara spoko
+ziom ziomek debil kretyn frajer sorki zabil zabij zabity wszyscy wszystko
+razem przez bylo bedzie mozesz moze dzien dobry wieczor czesc kurwo
+dawaj dawajcie jedziemy rozbrajaj rozbroj podkladaj ostatni dobij dobijcie
+uciekaj rotuj rotacja dzban dzbanie lamus leszcz wypierdalaj zajebiscie
+""".split())
+
+
 def _guess_sources(text):
     """Candidate source languages for `text`, most likely first; empty if
     nothing in it identifies a language."""
@@ -76,6 +95,8 @@ def _guess_sources(text):
     for codes, pattern in _SCRIPT_HINTS:
         if re.search(pattern, t):
             return list(codes)
+    if any(w in _POLISH_WORDS for w in re.findall(r"[a-z]+", t)):
+        return ["pl"]
     return []
 
 
