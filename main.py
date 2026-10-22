@@ -269,6 +269,10 @@ class ChatWorker(threading.Thread):
             # meaning directly, and costs no translation request.
             meaning = glossary.get().phrase(text, langs) if slang else None
             swapped = []
+            # What the line was written in, so the overlay can show only
+            # the languages picked in Settings: what the translator
+            # detected, else the alphabet's best guess.
+            source_lang = langs[0] if langs else ""
             if meaning:
                 original, text, translated = text, meaning, True
             # Skip pointless translation of plain-ASCII chat when target is English.
@@ -288,6 +292,8 @@ class ChatWorker(threading.Thread):
                       else translator.translate(source))
                 if tr and tr.strip() and tr.strip() != text.strip():
                     original, text, translated = text, tr, True
+                    if tr is not source and translator.last_source:
+                        source_lang = translator.last_source
             # Explain slang in what the player actually typed. Plain-ASCII
             # lines are never translated, but transliterated swearing
             # ("cyka blyat") is still worth explaining.
@@ -309,9 +315,23 @@ class ChatWorker(threading.Thread):
                 "original": original,
                 "translated": translated,
                 "gloss": gloss,
-                "lang": "",
+                "lang": source_lang,
                 "ts": time.strftime("%H:%M:%S"),
             })
+
+
+def for_overlay(r, cfg):
+    """The overlay is for what you can't understand yourself: chat only when
+    it was translated from a language picked in Settings, never English chat
+    or status lines. Voice captions are already limited to those languages
+    (plus English, if that was asked for)."""
+    if r.get("kind") != "chat":
+        return True
+    if not r.get("translated"):
+        return False
+    picked = {str(c).lower() for c in cfg["translation"].get("languages", [])}
+    lang = (r.get("lang") or "").lower().split("-")[0]
+    return not picked or lang in picked
 
 
 def main():
@@ -366,9 +386,9 @@ def main():
                       on_clear=overlay.clear, on_mute=mute_player)
 
     bridge.new_caption.connect(
-        lambda r: (overlay.add_caption(r), history.add_caption(r), writer.add_caption(r)))
-    bridge.status.connect(
-        lambda t: (overlay.add_status(t), history.add_status(t), writer.add_status(t)))
+        lambda r: (overlay.add_caption(r) if for_overlay(r, cfg) else None,
+                   history.add_caption(r), writer.add_caption(r)))
+    bridge.status.connect(lambda t: (history.add_status(t), writer.add_status(t)))
 
     overlay_enabled = cfg["overlay"].get("enabled", False)
     if overlay_enabled:

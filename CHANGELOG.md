@@ -24,6 +24,9 @@
 - An issue form for suggesting slang dictionary entries.
 - **The overlay is on by default**, with a switch for it in Settings. It
   was off until turned on from the tray, which nothing pointed out.
+- **The overlay shows only what needs translating:** chat translated from
+  a language picked in Settings, and voice captions. English chat, chat in
+  other languages and status lines stay in the captions window.
 - **Hotkeys are shown** beside their items in the tray menu, in a Hotkeys
   section in Settings, and with what each does in the startup message.
 - **Settings in two columns**, so the window fits on a laptop screen.

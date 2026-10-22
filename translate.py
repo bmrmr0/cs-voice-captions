@@ -106,6 +106,10 @@ class _ChainTranslator:
         # reply helper knows its source (English), and saying so lets
         # MyMemory -- which can't detect a language -- translate it too.
         self.source = _lang_code(source) if source else None
+        # The language the last translate() call came from, as the service
+        # detected it ("" if unknown). Read by the chat worker, the only
+        # thread using its translator.
+        self.last_source = ""
         self._said = {}
 
     def _note(self, key, msg):
@@ -151,6 +155,21 @@ class _ChainTranslator:
         return "".join(seg[0] for seg in first   # gtx: join the sentence chunks
                        if isinstance(seg, list) and seg and isinstance(seg[0], str))
 
+    @staticmethod
+    def _google_source(data):
+        """The detected source language: gtx puts it third in the response,
+        dict-chrome-ex beside the text ([[text, lang]])."""
+        try:
+            if isinstance(data, list) and len(data) > 2 and isinstance(data[2], str):
+                return data[2]
+            first = data[0]
+            if (isinstance(first, list) and len(first) > 1
+                    and isinstance(first[0], str) and isinstance(first[1], str)):
+                return first[1]
+        except (IndexError, TypeError):
+            pass
+        return ""
+
     def _via_google(self, text):
         import requests
         now = time.monotonic()
@@ -170,8 +189,10 @@ class _ChainTranslator:
                                f"retrying it in {self.GOOGLE_BACKOFF_S // 60} min")
                     continue
                 r.raise_for_status()
-                out = self._parse_google(r.json())
+                data = r.json()
+                out = self._parse_google(data)
                 if out and out.strip():
+                    self.last_source = self._google_source(data).lower()
                     return out
             except Exception as e:  # noqa: BLE001
                 self._note(f"google-{name}", f"Google ({name}) translation failed: {e}")
@@ -195,6 +216,7 @@ class _ChainTranslator:
                 self._note("mymemory", f"MyMemory refused: {(out or '').strip()[:120]}")
                 return None
             if not _same_text(out, text):
+                self.last_source = source
                 return out
             # Handed back unchanged: wrong guess, so try the next candidate.
         return None
@@ -210,10 +232,12 @@ class _ChainTranslator:
         cache = self.__dict__.setdefault("_cache", {})
         if key in cache:
             cache[key] = cache.pop(key)          # most recently used goes last
-            return cache[key]
+            out, self.last_source = cache[key]
+            return out
+        self.last_source = ""
         out = self._via_google(text) or self._via_mymemory(text)
         if out:
-            cache[key] = out
+            cache[key] = (out, self.last_source)
             if len(cache) > self.CACHE_SIZE:
                 cache.pop(next(iter(cache)))     # evict the least recently used
         return out
