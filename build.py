@@ -34,6 +34,7 @@ HIDDEN_IMPORTS = [
     "proctap",
     "psutil",
     "cpu",
+    "lang_id",
     "deep_translator",
     "requests",
     "openvino",

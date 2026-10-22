@@ -89,10 +89,6 @@ DEFAULTS = {
         # or a path to an OpenVINO model folder. Downloaded once on first run
         # and kept in the app data folder.
         "model": "small",
-        # How each clip's language is told, on the CPU: "accurate" (the
-        # small model) or "light" (it quantized to 8 bits: about half the
-        # CPU, misses about 1 in 10 Russian clips).
-        "language_check": "accurate",
         "beam_size": 1,               # >1 is more accurate and slower
     },
 

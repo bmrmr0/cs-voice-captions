@@ -49,10 +49,11 @@
   checked against the dictionaries of the languages picked in Settings.
 - **Polish typed without Polish letters is translated.** Plain-letter chat
   was taken for English and never sent; common Polish words now give it away.
-- **"Language check: Lighter on the CPU"** in Settings: the language step
-  with an 8-bit model, half the CPU (2.0–2.3 CPU-seconds a clip instead of
-  about 4.2) but it missed 2 of 21 Russian test clips. Accurate stays the
-  default. Switches without a restart.
+- **The language step moved to the NPU: about a tenth of the CPU.** The
+  model's encoder runs on the NPU and one decoder step, reset for every
+  clip, on the CPU. On 121 saved clips: the same language as before on every
+  one, 0.45 CPU-seconds a clip instead of 3.9, and captions about twice as
+  quick. The CPU copy of the model (1.4 GB) is only a fallback now.
 - **The voice detector skips sustained silence** (menus, pauses): half the
   CPU while CS2 is quiet, with identical decisions on 3,799 test frames.
 - **"Ignore speech shorter than" defaults to 0.7 s** (was 0.5). On 157 saved

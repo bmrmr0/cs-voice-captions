@@ -36,3 +36,16 @@ def test_passes_speech_band_and_stops_aliasing():
 def test_16k_passes_through():
     x = np.ones(320, dtype=np.float32)
     assert np.array_equal(audio._Resampler(16000).process(x), x)
+
+
+def test_whisper_spectrogram_shape_and_range():
+    import lang_id
+    t = np.arange(16000) / 16000
+    mel = lang_id.log_mel((0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32))
+    assert mel.shape == (80, 3000) and mel.dtype == np.float32
+    # Whisper's scaling: at most 8 log10 units below the peak, then (x+4)/4.
+    assert mel.max() - mel.min() <= 2.0 + 1e-6
+    # A 440 Hz tone lands in the low mel bands, during the first second only.
+    assert mel[:20, :100].mean() > mel[:20, 200:].mean()
+    filters = lang_id._mel_filters()
+    assert filters.shape == (80, 201) and (filters >= 0).all()

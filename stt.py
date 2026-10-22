@@ -59,7 +59,6 @@ MODEL_REPOS = {
     "base": "OpenVINO/whisper-base-fp16-ov",
     "small": "OpenVINO/whisper-small-fp16-ov",
     "medium": "OpenVINO/whisper-medium-fp16-ov",
-    "small-int8": "OpenVINO/whisper-small-int8-ov",
     "large-v3-turbo": "OpenVINO/whisper-large-v3-turbo-fp16-ov",
 }
 
@@ -201,8 +200,7 @@ class Transcriber:
         self.device = "CPU"
         self.device_summary = "CPU"
         self._pipe = None
-        self._detector = None          # picks each clip's language, on the CPU
-        self._detector_light = False
+        self._detector = None          # picks each clip's language (lang_id.py)
         self._detector_failed = False
         self._load()
 
@@ -361,59 +359,61 @@ class Transcriber:
                 for c in self.tcfg.get("languages", []) if str(c).strip()}
 
     def _get_detector(self):
-        """A CPU copy of the model that decides which language each clip is
-        in. The NPU still does the transcribing and translating, told which
-        language to use.
+        """What decides each clip's language: the encoder on the NPU plus
+        one fresh decoder step on the CPU (lang_id.LanguageId), else a CPU
+        copy of the model. The NPU still does the transcribing and
+        translating, told which language to use.
 
-        The NPU build can't be trusted to pick the language itself: its
-        answer depends on the clips it heard before. The same 30 clips run
-        forwards and then backwards got different languages on 25 of them
-        (OpenVINO 2026.3 and 2026.4 alike), while the CPU build gave the
-        same answer every time, and so did a freshly loaded NPU model on its
-        first clip. That is what made the NPU seem to hear Russian in
-        English, CS2's radio and noise -- and, just as often, to miss real
-        Russian. Told the language, the NPU's output no longer depends on
-        what came before (121 of 121 identical both ways).
+        OpenVINO GenAI's pipeline can't be trusted to pick the language on
+        the NPU itself: its answer depends on the clips it heard before. The
+        same 30 clips run forwards and then backwards got different
+        languages on 25 of them (OpenVINO 2026.3 and 2026.4 alike), while the
+        CPU build gave the same answer every time. That is what made the NPU
+        seem to hear Russian in English, CS2's radio and noise -- and, just
+        as often, to miss real Russian. Told the language, its output no
+        longer depends on what came before (121 of 121 identical both ways).
 
-        Only the language is asked for, which costs one encoder pass:
-        ~1.1 s for small, against ~4 s for medium -- so with medium as the
-        main model this stays on small. Smaller ones aren't good enough: on
-        121 saved clips tiny found 14 of the 21 Russian ones and called 4
-        others Russian, base 11 and 8; small is the reference. Not needed
-        when the main model is already on the CPU.
+        Driving the model's halves directly avoids the bug: the encoder is
+        stateless and the decoder state is reset for every clip. On 121
+        saved clips it agreed with the CPU copy on every one, in either
+        order, for 0.45 CPU-seconds a clip instead of 3.9 (0.46 s instead of
+        1.1-1.5 s). What CPU is left is that one decoder step, which reads
+        the whole 30 s of encoder output; giving it only the part covering
+        the clip changed 9 answers in 121 even with 3 s to spare.
 
-        A fresh NPU model gets the language right on its first clip, and
-        a forced-language pass over the clip first gets 26 of 30 right, so
-        neither replaces this: reloading costs ~2.3 CPU-seconds a clip, and
-        26 of 30 is not good enough."""
+        The CPU copy is the fallback, if the NPU can't take the encoder.
+        Smaller CPU models weren't good enough for it: tiny found 14 of the
+        21 Russian clips and called 4 others Russian, base 11 and 8; an
+        8-bit small missed 2. Not needed at all when the main model is on
+        the CPU, which is reliable on its own. With medium as the main
+        model, this uses small."""
         if self.device.upper().startswith("CPU"):
             return None
-        # stt.language_check, read every time so Settings can switch it.
-        # "light" is small quantized to 8 bits: on 121 clips it took 2.0-2.3
-        # CPU-seconds a clip instead of ~4.2, but found 19 of the 21
-        # Russian ones (no false ones). "accurate" is the reference.
-        light = (self.scfg.get("language_check") or "accurate") == "light"
-        if self._detector is not None and self._detector_light != light:
-            self._detector, self._detector_failed = None, False
         if self._detector is not None or self._detector_failed:
             return self._detector
+        import config as config_mod
+        cache = os.path.join(config_mod.data_dir(), "device-cache")
+        big = (self.scfg.get("model") or "").strip().lower() in ("medium", "large-v3-turbo")
+        path = self._model_path("small") if big else self._model_dir
+        try:
+            import lang_id
+            self._detector = lang_id.LanguageId(path, self.device, cache, threads=2)
+            print(f"[stt] language detection ready on {self.device}")
+            return self._detector
+        except Exception as e:  # noqa: BLE001
+            print(f"[stt] language detection on {self.device} unavailable ({e}); "
+                  "using a CPU copy of the model")
         try:
             import openvino_genai as ov_genai
-            import config as config_mod
-            big = (self.scfg.get("model") or "").strip().lower() in ("medium", "large-v3-turbo")
-            path = (self._model_path("small-int8") if light
-                    else self._model_path("small") if big else self._model_dir)
+            import cpu
             # Not every core. On a CPU with only one kind of core, four: that
             # kept 2.8 cores busy instead of 4.1 for 0.4 s more per clip.
             # Pinned to efficiency cores (cpu.py), eight: 0.94 s a clip,
             # faster than four were on all cores. Same languages either way.
-            import cpu
             self._detector = ov_genai.WhisperPipeline(
-                path, device="CPU",
-                CACHE_DIR=os.path.join(config_mod.data_dir(), "device-cache"),
+                path, device="CPU", CACHE_DIR=cache,
                 INFERENCE_NUM_THREADS=cpu.detector_threads())
-            self._detector_light = light
-            print(f"[stt] language detection ready on CPU ({'light' if light else 'accurate'})")
+            print("[stt] language detection ready on CPU")
         except Exception as e:  # noqa: BLE001
             self._detector_failed = True
             print(f"[stt] CPU language detection unavailable ({e}); "
@@ -421,12 +421,14 @@ class Transcriber:
         return self._detector
 
     def _detect_language(self, audio):
-        """The clip's language code from the CPU model, or None to let the
-        main model decide (on the CPU it is reliable on its own)."""
+        """The clip's language code, or None to let the main model decide
+        (on the CPU it is reliable on its own)."""
         detector = self._get_detector()
         if detector is None:
             return None
         try:
+            if hasattr(detector, "detect"):
+                return detector.detect(audio) or None
             r = detector.generate(audio, task="translate", max_new_tokens=1)
             return (getattr(r, "language", "") or "").strip().strip("<|>").lower() or None
         except Exception as e:  # noqa: BLE001

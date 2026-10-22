@@ -82,7 +82,6 @@ window.
 | --- | --- | --- | --- |
 | `stt.model` | `"small"` | `tiny`, `base`, `small`, `medium`. Bigger is more accurate and slower, and downloads once. `medium` is **Translation quality: Better** in Settings: on 21 Russian test clips it translated 8 better and 4 worse than `small`, at about 0.85 s a clip instead of 0.3 s on the NPU, after a 1.5 GB download. (`large-v3-turbo` is faster but translates poorly.) Applies at the next start. | Settings |
 | `cpu.efficiency_cores_only` | `true` | On a CPU with performance and efficiency cores (recent Intel), run the app on the efficiency cores only, so the game keeps the performance cores. | |
-| `stt.language_check` | `"accurate"` | How each clip's language is worked out, on the CPU (with an NPU only). `"light"` uses an 8-bit model: 2.1 CPU-seconds a clip instead of 3.9, 0.6 GB less memory, captions half a second sooner, but it missed 2 of 21 Russian test clips. Switches without a restart. | Settings |
 | `stt.device` | `"auto"` | NPU if there is one, else the CPU. Force it with `"NPU"` or `"CPU"`. The GPU is never used, because it's busy running the game. | |
 | `stt.beam_size` | `1` | Raise to `5` for slightly better accuracy at the cost of speed. | |
 
