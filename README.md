@@ -29,11 +29,10 @@ audio and the log file CS2 writes itself, and never touches the game process.
 
 ## Install
 
-1. Download `CSVoiceCaptions.exe` from [Releases](../../releases). From
-   version 1.1 there's also `CSVoiceCaptions-folder.zip`: the same app as a
-   folder, which starts in under half a second instead of about two and a
-   half, and that antivirus tools flag less often. Unzip it and run the exe
-   inside.
+1. Download from [Releases](../../releases) either `CSVoiceCaptions.exe`, a
+   single file, or `CSVoiceCaptions-folder.zip`, the same app as a folder:
+   it starts in under half a second instead of about two and a half, and
+   antivirus tools flag it less often. Unzip it and run the exe inside.
 2. **Add `-condebug` to CS2's launch options.** Without it there is no text
    chat. In Steam, right-click Counter-Strike 2 → Properties… → General →
    Launch Options. The app reminds you on start if it's missing.

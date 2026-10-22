@@ -1,102 +1,82 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — 2026-10-22
 
-- **Reminder about `-condebug`.** Text chat only works when CS2 is started
-  with the `-condebug` launch option, and nothing in the game says so. The
-  app now reads CS2's launch options from Steam on start and, if the option
-  is missing, explains how to add it (with a button that copies it). It
-  keeps reminding until it's added or you tick "Don't remind me again"; if
-  it can't tell, it shows once. It checks the Steam account you're signed
-  in with, not every account that has used the PC.
-- **Reply in chat** (`Ctrl+Alt+R`, or the tray menu). Type English, pick the
-  language, press Enter: the translation is copied to the clipboard to paste
-  into the game chat. Nothing is typed into the game for you.
-- **Mute a player.** Right-click their name in the captions window to hide
-  their chat; unmute them in Settings.
-- **New version notice.** On start the app checks GitHub's latest release
-  and, if it's newer, says so in the tray with a link. Nothing is downloaded.
-  Can be turned off in Settings.
-- **Start with Windows**, in Settings.
-- **Save transcripts** is now in Settings, and starts or stops at once.
-- **Overlay position presets** (top or bottom; left, centre or right). At the
-  bottom of the screen the overlay grows upwards as captions arrive.
-- An issue form for suggesting slang dictionary entries.
-- **The overlay is on by default**, with a switch for it in Settings. It
-  was off until turned on from the tray, which nothing pointed out.
-- **A folder version** (`CSVoiceCaptions-folder.zip`) alongside the single
-  exe. It starts in 0.4 s instead of 2.4 s, since nothing is unpacked first.
-- **Automated tests** (`tests/`), run on GitHub for every push.
-- **Chat in a picked language no longer goes missing from the overlay** when
-  Google misjudges a short line: two transliterated words of Russian came
-  back as Tajik and were hidden. The alphabet now wins in that case.
-- **Welcome window on the first start:** where captions appear, what CS2
+Two downloads now: the single `CSVoiceCaptions.exe` as before, and
+`CSVoiceCaptions-folder.zip`, the same app as a folder, which starts in about
+0.4 s instead of 2.4 s and is flagged by antivirus tools less often.
+
+### Captions you were missing
+- **Far fewer Russian clips lost.** The NPU's guess at a clip's language
+  depended on the clips before it, so real Russian was often taken for
+  something else and dropped. The language is now worked out separately for
+  every clip. On 121 saved clips this captions all 21 Russian ones, where
+  1.0.0 captioned 4.
+- **Short chat lines no longer go missing from the overlay** when Google
+  misjudges their language (two transliterated words of Russian came back
+  as Tajik). Where the alphabet points to a language you picked, it wins.
+- **Polish typed without Polish letters** ("dzieki", "nie wiem") is
+  translated; it used to be taken for English.
+- **A lone slang word gets its meaning** as the caption, instead of a
+  transliteration with the meaning in a note.
+- **More slang:** Polish, Ukrainian and Turkish callouts ("dawaj", "мінус
+  два", "helal olsun") and insults. Lines in plain Latin letters are checked
+  against the dictionaries of the languages you picked.
+- **Polish is captioned by default**, alongside Russian and Ukrainian.
+
+### Lighter on the game
+- **About a sixth of the CPU per spoken clip** (0.6 CPU-seconds instead of
+  3.9), and captions about 0.9 s sooner. Each clip's language is worked out
+  with the speech model's encoder on the NPU; only one small step stays on
+  the CPU.
+- **Off the game's cores.** On CPUs with performance and efficiency cores
+  (recent Intel), the app runs on the efficiency cores only, leaving the
+  performance cores to CS2.
+- **Below-normal priority**, so CS2 always comes first.
+- **The voice detector** uses half the CPU it did, and half again while the
+  game is silent.
+- **Smaller download:** about 114 MB instead of 200 MB. Dropped what the app
+  never loads (OpenVINO's GPU plugin and model importers, onnxruntime, parts
+  of Qt) and SciPy, replaced by a streaming resampler that also removes a
+  seam the old one left in the audio every 30 ms.
+
+### Added
+- **Welcome window** on the first start: where captions appear, what CS2
   needs for the overlay (Fullscreen Windowed) and for text chat
   (`-condebug`, with whether it's set), and the hotkeys. Reopen it from the
-  tray menu (Welcome & help).
-- **Reply in the language you last heard.** The reply helper picks the
-  language of the last foreign voice or chat line; choosing one by hand
-  still wins until a different language is heard.
-- **The overlay goes on CS2's monitor.** Position presets use the screen CS2
-  is on, not always the main one.
-- **Overlay background setting** (0–100 %, 0 = no box), and lines fade out
-  at the end instead of vanishing.
-- **Tray → Troubleshooting → Open log / Open data folder.** The previous
-  session's log is kept as `cs-voice-captions.previous.log`.
-- **Settings and the reply window remember where you left them.**
-- **More slang:** Polish, Ukrainian and Turkish callouts ("dawaj", "мінус
-  два", "helal olsun") and insults. Lines typed in plain Latin letters are
-  checked against the dictionaries of the languages picked in Settings.
-- **Polish typed without Polish letters is translated.** Plain-letter chat
-  was taken for English and never sent; common Polish words now give it away.
-- **The language step moved to the NPU: about a tenth of the CPU.** The
-  model's encoder runs on the NPU and one decoder step, reset for every
-  clip, on the CPU. On 121 saved clips: the same language as before on every
-  one, 0.45 CPU-seconds a clip instead of 3.9, and captions about twice as
-  quick. The CPU copy of the model (1.4 GB) is only a fallback now.
-- **The voice detector skips sustained silence** (menus, pauses): half the
-  CPU while CS2 is quiet, with identical decisions on 3,799 test frames.
-- **"Ignore speech shorter than" defaults to 0.7 s** (was 0.5). On 157 saved
-  clips, of the captions in the picked languages under 0.7 s, 1 of 6 was
-  real.
-- **Off the game's cores.** On CPUs with performance and efficiency cores the
-  app runs on the efficiency cores only. Measured on a Core Ultra 9 275HX:
-  the language step went from 72% of its work on performance cores to none,
-  and captions came 0.5 s sooner (8 efficiency-core threads instead of 4).
-- **Less CPU.** The app runs at below-normal priority so CS2 always comes
-  first; the voice detector uses one thread (half the constant load) and the
-  language step four (2.8 cores busy instead of 4.1).
-- **No more SciPy:** resampling CS2's audio is plain NumPy, streaming without
-  a seam every 30 ms (the old code restarted its filter on each chunk). It
-  matches one-piece resampling exactly, and the exe is about 30 MB smaller.
-- **Voice clips are saved only in development builds**; released exes never
-  record them by default.
-- **The overlay shows only what needs translating:** chat translated from
-  a language picked in Settings, and voice captions. English chat, chat in
-  other languages and status lines stay in the captions window.
-- **Hotkeys are shown** beside their items in the tray menu, in a Hotkeys
-  section in Settings, and with what each does in the startup message.
+  tray (Welcome & help).
+- **Reminder about `-condebug`** on start while it's missing from CS2's
+  launch options, for the Steam account you're signed in with.
+- **Reply in chat** (`Ctrl+Alt+R`): type English, and the translation is
+  copied to paste into the game chat. It offers the language you last heard.
+  Nothing is typed into the game for you.
+- **Mute a player:** right-click their name in the captions window.
+- **New version notice** in the tray, with a link. Nothing is downloaded.
+- **Translation quality: Better** in Settings: the larger speech model,
+  somewhat better translations, about three times slower on the NPU.
+- **Start with Windows** and **Save transcripts** in Settings.
+- **Overlay:** position presets (it follows CS2's monitor and grows upwards
+  at the bottom), a background darkness setting, and lines that fade out.
+- **Tray → Troubleshooting → Open log / Open data folder**; the previous
+  session's log is kept too.
+- An issue form for suggesting slang.
+
+### Changed
+- **The overlay is on by default**, and shows only what needs translating:
+  voice captions and chat translated from a language you picked. English
+  chat and status lines stay in the captions window.
+- **Hotkeys are shown** in the tray menu, in Settings and on start.
 - **Settings in two columns**, so the window fits on a laptop screen.
-- **Polish is captioned by default** too, alongside Russian and Ukrainian.
-- **Smaller exe: 145 MB instead of 200 MB**, and less to unpack on every
-  start. Dropped what the app never loads: OpenVINO's GPU plugin, importers
-  for model formats it doesn't read, onnxruntime, Qt's QML/Quick/PDF parts
-  and its translations. The GPU can no longer be chosen with `stt.device`;
-  it was never used by default, since it's busy running the game.
-- **A lone slang word gets its meaning.** A message that is nothing but one
-  dictionary term now shows the term's meaning as the caption. Before, the
-  translator often just transliterated an insult, and the meaning was only
-  in the note underneath.
-- **Far fewer Russian clips lost.** The NPU's guess at a clip's language
-  turned out to depend on the clips before it, so real Russian was often
-  taken for something else and dropped. The language is now decided on the
-  CPU and the NPU is told it. On 121 saved clips this captions all 21
-  Russian ones, where 1.0.0 captioned 4. The `translation.verify_language`
-  option is gone: the CPU check it switched on is now how the language is
-  chosen.
-- **Translation quality: Better**, in Settings, switches to the larger
-  speech model: somewhat better translations, about three times slower,
-  1.5 GB to download once. Applies at the next start.
+- **The captions window, Settings and the reply window remember** where you
+  left them.
+- **"Ignore speech shorter than" defaults to 0.7 s** (was 0.5): of the
+  captions from shorter speech in 157 saved clips, 1 in 6 was real.
+- `stt.device` takes `"NPU"` or `"CPU"`; the GPU is never used.
+- `translation.verify_language` is gone; the language is always checked.
+
+### Fixed
+- `Ctrl+Alt+C` now brings the captions window back when it's minimized or
+  behind the game; the reply and settings windows open in front too.
 
 ## 1.0.0
 

@@ -42,24 +42,29 @@ GPU that's running the game. On a Core Ultra 9 it's also faster than the CPU:
 | NPU | **0.40 s** |
 | CPU | 2.19 s |
 
-## Which language? Asked of the CPU
+## Which language?
 
-On the NPU, Whisper's guess at a clip's language depends on the clips it
-heard before. The same 30 clips run forwards and then backwards came back
-in different languages for 25 of them (OpenVINO 2026.3 and 2026.4 alike),
-while the CPU build gave the same answer every time, as did a freshly
-loaded NPU model on its first clip. That is why the NPU seemed to hear
-Russian in English, CS2's radio and noise, and as often missed real Russian.
+On the NPU, Whisper's own guess at a clip's language depends on the clips it
+heard before. The same 30 clips run forwards and then backwards came back in
+different languages for 25 of them (OpenVINO 2026.3 and 2026.4 alike), while
+the CPU build gave the same answer every time. That is why 1.0.0 seemed to
+hear Russian in English, CS2's radio and noise, and as often missed real
+Russian.
 
-So a copy of the model on the CPU decides the language of each clip (one
-encoder pass, about 0.95 s, ~370 MB), and the NPU then transcribes and
-translates it told which language it is. Told the language, the NPU's output
-no longer depends on what came before. On 121 saved clips the old approach
-(NPU guesses, CPU confirms) captioned 4 of the 21 Russian ones; this one
-captions all 21, and gives the same captions in either order.
+So the app asks the model's two halves itself. The encoder, nearly all of
+the work, runs on the NPU; it keeps nothing between clips. Then one step of
+the decoder, reset for every clip, runs on the CPU and says which language
+it rates highest, which is how Whisper picks a language anyway. On 121 saved
+clips this gave the same language as the CPU model on every one, in either
+order, for 0.45 CPU-seconds a clip instead of 3.9. The NPU then transcribes
+and translates the clip, told which language it is.
 
-A clip in a language you don't caption is dropped after the CPU pass and
-never reaches the NPU.
+A clip in a language you don't caption is dropped at that point and never
+reaches the translation.
+
+On a CPU with performance and efficiency cores the app runs on the
+efficiency cores only, so what CPU work there is stays off the cores the
+game uses.
 
 ## What gets filtered, and why
 
