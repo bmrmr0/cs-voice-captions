@@ -33,6 +33,7 @@ HIDDEN_IMPORTS = [
     "soundcard",
     "proctap",
     "psutil",
+    "cpu",
     "deep_translator",
     "requests",
     "openvino",

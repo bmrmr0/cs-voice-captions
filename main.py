@@ -355,6 +355,9 @@ def _lower_priority():
 def main():
     cfg = config_mod.load()
     _lower_priority()
+    if cfg.get("cpu", {}).get("efficiency_cores_only", True):
+        import cpu
+        cpu.stay_off_performance_cores()
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)

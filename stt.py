@@ -403,14 +403,15 @@ class Transcriber:
             big = (self.scfg.get("model") or "").strip().lower() in ("medium", "large-v3-turbo")
             path = (self._model_path("small-int8") if light
                     else self._model_path("small") if big else self._model_dir)
-            # Four threads, not all of them: on 30 clips that kept 2.8 cores
-            # busy instead of 4.1 and did 7% less work in all, for 0.4 s
-            # more per clip, with the same languages. (Two threads: 1.7
-            # cores, but 1.2 s slower.)
+            # Not every core. On a CPU with only one kind of core, four: that
+            # kept 2.8 cores busy instead of 4.1 for 0.4 s more per clip.
+            # Pinned to efficiency cores (cpu.py), eight: 0.94 s a clip,
+            # faster than four were on all cores. Same languages either way.
+            import cpu
             self._detector = ov_genai.WhisperPipeline(
                 path, device="CPU",
                 CACHE_DIR=os.path.join(config_mod.data_dir(), "device-cache"),
-                INFERENCE_NUM_THREADS=4)
+                INFERENCE_NUM_THREADS=cpu.detector_threads())
             self._detector_light = light
             print(f"[stt] language detection ready on CPU ({'light' if light else 'accurate'})")
         except Exception as e:  # noqa: BLE001

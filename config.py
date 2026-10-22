@@ -62,6 +62,12 @@ DEFAULTS = {
         "reply": "",
     },
 
+    # On a CPU with performance and efficiency cores, run on the efficiency
+    # cores only, leaving the performance cores to the game (see cpu.py).
+    "cpu": {
+        "efficiency_cores_only": True,
+    },
+
     # The welcome window shown on the first start (tray: Welcome & help).
     "welcome": {
         "seen": False,

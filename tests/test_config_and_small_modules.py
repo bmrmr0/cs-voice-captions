@@ -40,3 +40,13 @@ def test_version_comparison():
     assert updates.parse_version("v1.2.3") == (1, 2, 3)
     assert updates.newer("v1.1.0", "1.0.0") and not updates.newer("v1.0.0", "1.0.0")
     assert not updates.newer("nightly", "1.0.0")
+
+
+def test_detector_threads_follow_the_core_types(monkeypatch):
+    import cpu
+    monkeypatch.setattr(cpu, "efficiency_cores", lambda: [])
+    assert cpu.detector_threads() == 4 and cpu.stay_off_performance_cores() == []
+    monkeypatch.setattr(cpu, "efficiency_cores", lambda: list(range(16)))
+    assert cpu.detector_threads() == 8
+    monkeypatch.setattr(cpu, "efficiency_cores", lambda: list(range(4)))
+    assert cpu.detector_threads() == 2

@@ -58,6 +58,10 @@
 - **"Ignore speech shorter than" defaults to 0.7 s** (was 0.5). On 157 saved
   clips, of the captions in the picked languages under 0.7 s, 1 of 6 was
   real.
+- **Off the game's cores.** On CPUs with performance and efficiency cores the
+  app runs on the efficiency cores only. Measured on a Core Ultra 9 275HX:
+  the language step went from 72% of its work on performance cores to none,
+  and captions came 0.5 s sooner (8 efficiency-core threads instead of 4).
 - **Less CPU.** The app runs at below-normal priority so CS2 always comes
   first; the voice detector uses one thread (half the constant load) and the
   language step four (2.8 cores busy instead of 4.1).
