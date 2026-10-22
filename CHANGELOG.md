@@ -49,6 +49,15 @@
   checked against the dictionaries of the languages picked in Settings.
 - **Polish typed without Polish letters is translated.** Plain-letter chat
   was taken for English and never sent; common Polish words now give it away.
+- **"Language check: Lighter on the CPU"** in Settings: the language step
+  with an 8-bit model, half the CPU (2.0–2.3 CPU-seconds a clip instead of
+  about 4.2) but it missed 2 of 21 Russian test clips. Accurate stays the
+  default. Switches without a restart.
+- **The voice detector skips sustained silence** (menus, pauses): half the
+  CPU while CS2 is quiet, with identical decisions on 3,799 test frames.
+- **"Ignore speech shorter than" defaults to 0.7 s** (was 0.5). On 157 saved
+  clips, of the captions in the picked languages under 0.7 s, 1 of 6 was
+  real.
 - **Less CPU.** The app runs at below-normal priority so CS2 always comes
   first; the voice detector uses one thread (half the constant load) and the
   language step four (2.8 cores busy instead of 4.1).

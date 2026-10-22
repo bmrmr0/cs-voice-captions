@@ -83,6 +83,10 @@ DEFAULTS = {
         # or a path to an OpenVINO model folder. Downloaded once on first run
         # and kept in the app data folder.
         "model": "small",
+        # How each clip's language is told, on the CPU: "accurate" (the
+        # small model) or "light" (it quantized to 8 bits: about half the
+        # CPU, misses about 1 in 10 Russian clips).
+        "language_check": "accurate",
         "beam_size": 1,               # >1 is more accurate and slower
     },
 
@@ -134,8 +138,10 @@ DEFAULTS = {
         # the silence that ends the phrase do not). Most CS2 callouts are well
         # under two seconds, so this is kept short; the junk short clips
         # produce is filtered by translation.languages and the hallucination
-        # list instead of by length.
-        "min_utterance_s": 0.5,
+        # list instead of by length. 0.7 from 157 saved clips: of the
+        # Russian, Ukrainian and Polish captions under 0.7 s of speech, 1
+        # of 6 was real; from 0.7 s up real callouts take over.
+        "min_utterance_s": 0.7,
         "min_speech_ms": 200,         # drop clips with less real speech than this
         # Fraction of the clip that must actually be speech. Without this a
         # single word adrift in six seconds of gunfire reaches Whisper, which

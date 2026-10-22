@@ -57,7 +57,7 @@ window.
 
 | Key | Default | What it does | |
 | --- | --- | --- | --- |
-| `vad.min_utterance_s` | `0.5` | Ignore speech shorter than this many seconds. | Settings |
+| `vad.min_utterance_s` | `0.7` | Ignore speech shorter than this many seconds. | Settings |
 | `vad.speech_threshold` | `0.5` | How sure the detector must be that someone is talking (0–1). Higher ignores more game sound and music; lower catches quieter speech. | Settings |
 | `vad.silence_ms` | `900` | Silence that ends a phrase. Too low splits sentences into fragments too short to translate well. | |
 | `vad.max_utterance_s` | `8` | Longest single caption; longer speech is split. | |

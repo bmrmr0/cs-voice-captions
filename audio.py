@@ -61,6 +61,14 @@ class _SileroVAD:
     """
 
     CHUNK = 512          # samples at 16 kHz -- what Silero v5 expects
+    # Below this peak (-60 dBFS) a chunk is silence: no one is talking, and
+    # running the model would only cost CPU. CS2 sends silence whenever
+    # nothing is playing -- menus, pauses, the game in the background.
+    SILENT = 1e-3
+    # Only once it has lasted this many chunks (0.5 s): the model carries
+    # memory from chunk to chunk, and skipping the short silences inside
+    # speech changed its later answers.
+    SILENT_RUN = 16
     # v5 also wants the 64 samples immediately preceding each chunk fed in
     # front of it. This is not optional: without the context the model scores
     # even loud, clean speech at ~0.06 and the gate rejects everything.
@@ -83,6 +91,7 @@ class _SileroVAD:
         self._buf = np.zeros(0, dtype=np.float32)
         self._context = np.zeros(self.CONTEXT, dtype=np.float32)
         self._prob = 0.0
+        self._quiet = 0          # silent chunks in a row
         self.threshold = float(threshold)
 
     def reset(self):
@@ -90,6 +99,7 @@ class _SileroVAD:
         self._buf = np.zeros(0, dtype=np.float32)
         self._context = np.zeros(self.CONTEXT, dtype=np.float32)
         self._prob = 0.0
+        self._quiet = 0
 
     @property
     def prob(self):
@@ -103,6 +113,14 @@ class _SileroVAD:
         while len(self._buf) >= self.CHUNK:
             chunk, self._buf = self._buf[:self.CHUNK], self._buf[self.CHUNK:]
             window = np.concatenate([self._context, chunk])
+            if float(np.max(np.abs(chunk))) < self.SILENT:
+                self._quiet += 1
+                if self._quiet > self.SILENT_RUN:
+                    self._prob = 0.0
+                    self._context = chunk[-self.CONTEXT:]
+                    continue
+            else:
+                self._quiet = 0
             try:
                 out = self._req.infer({"input": window.reshape(1, -1),
                                        "sr": self._sr,
@@ -470,7 +488,7 @@ class _BaseSource(threading.Thread):
         c = self.vad_cfg
         try:
             seg.min_phrase_frames = max(
-                0, int(float(c.get("min_utterance_s", 0.5)) * 1000) // FRAME_MS)
+                0, int(float(c.get("min_utterance_s", 0.7)) * 1000) // FRAME_MS)
             if vad._silero is not None:
                 vad._silero.threshold = float(c.get("speech_threshold", 0.5))
         except (TypeError, ValueError):
@@ -493,7 +511,7 @@ class _BaseSource(threading.Thread):
                          self.vad_cfg.get("min_speech_ms", 200),
                          self.vad_cfg.get("preroll_ms", 300),
                          self.vad_cfg.get("min_speech_ratio", 0.25),
-                         self.vad_cfg.get("min_utterance_s", 3.0),
+                         self.vad_cfg.get("min_utterance_s", 0.7),
                          on_drop=lambda why, clip: self._on_drop(why, clip))
 
         dump = None

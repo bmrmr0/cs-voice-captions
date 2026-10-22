@@ -59,6 +59,7 @@ MODEL_REPOS = {
     "base": "OpenVINO/whisper-base-fp16-ov",
     "small": "OpenVINO/whisper-small-fp16-ov",
     "medium": "OpenVINO/whisper-medium-fp16-ov",
+    "small-int8": "OpenVINO/whisper-small-int8-ov",
     "large-v3-turbo": "OpenVINO/whisper-large-v3-turbo-fp16-ov",
 }
 
@@ -201,6 +202,7 @@ class Transcriber:
         self.device_summary = "CPU"
         self._pipe = None
         self._detector = None          # picks each clip's language, on the CPU
+        self._detector_light = False
         self._detector_failed = False
         self._load()
 
@@ -384,22 +386,33 @@ class Transcriber:
         a forced-language pass over the clip first gets 26 of 30 right, so
         neither replaces this: reloading costs ~2.3 CPU-seconds a clip, and
         26 of 30 is not good enough."""
-        if (self._detector is not None or self._detector_failed
-                or self.device.upper().startswith("CPU")):
+        if self.device.upper().startswith("CPU"):
+            return None
+        # stt.language_check, read every time so Settings can switch it.
+        # "light" is small quantized to 8 bits: on 121 clips it took 2.0-2.3
+        # CPU-seconds a clip instead of ~4.2, but found 19 of the 21
+        # Russian ones (no false ones). "accurate" is the reference.
+        light = (self.scfg.get("language_check") or "accurate") == "light"
+        if self._detector is not None and self._detector_light != light:
+            self._detector, self._detector_failed = None, False
+        if self._detector is not None or self._detector_failed:
             return self._detector
         try:
             import openvino_genai as ov_genai
             import config as config_mod
             big = (self.scfg.get("model") or "").strip().lower() in ("medium", "large-v3-turbo")
+            path = (self._model_path("small-int8") if light
+                    else self._model_path("small") if big else self._model_dir)
             # Four threads, not all of them: on 30 clips that kept 2.8 cores
             # busy instead of 4.1 and did 7% less work in all, for 0.4 s
             # more per clip, with the same languages. (Two threads: 1.7
             # cores, but 1.2 s slower.)
             self._detector = ov_genai.WhisperPipeline(
-                self._model_path("small") if big else self._model_dir, device="CPU",
+                path, device="CPU",
                 CACHE_DIR=os.path.join(config_mod.data_dir(), "device-cache"),
                 INFERENCE_NUM_THREADS=4)
-            print("[stt] language detection ready on CPU")
+            self._detector_light = light
+            print(f"[stt] language detection ready on CPU ({'light' if light else 'accurate'})")
         except Exception as e:  # noqa: BLE001
             self._detector_failed = True
             print(f"[stt] CPU language detection unavailable ({e}); "

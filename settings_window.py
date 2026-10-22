@@ -32,6 +32,7 @@ OWNED = [
     ("translation", "languages"),
     ("translation", "slang"),
     ("vad", "min_utterance_s"), ("vad", "speech_threshold"), ("stt", "model"),
+    ("stt", "language_check"),
     ("overlay", "font_size"), ("overlay", "width"),
     ("overlay", "max_lines"), ("overlay", "line_ttl_s"),
     ("overlay", "position"), ("overlay", "enabled"), ("overlay", "opacity"),
@@ -252,7 +253,7 @@ class SettingsWindow(QWidget):
         _row(form, "Ignore speech shorter than", self.sp_phrase,
              "Speech shorter than this isn't captioned. Very short clips are "
              "often noise or mistranslated, but most callouts are under two "
-             "seconds, so raising it costs real ones. Default 0.5 s.")
+             "seconds, so raising it costs real ones. Default 0.7 s.")
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -274,6 +275,17 @@ class SettingsWindow(QWidget):
         self.lb_model.setObjectName("Hint")
         self.lb_model.setVisible(False)
         form.addRow("", self.lb_model)
+
+        self.co_check = QComboBox()
+        self.co_check.addItem("Accurate", "accurate")
+        self.co_check.addItem("Lighter on the CPU", "light")
+        self.co_check.currentIndexChanged.connect(
+            lambda _i: self._set("stt", "language_check", self.co_check.currentData()))
+        _row(form, "Language check", self.co_check,
+             "Each clip's language is worked out on the CPU, about a second "
+             "of work per clip. Lighter uses half the CPU but missed 2 of 21 "
+             "Russian test clips that Accurate caught. Downloads 250 MB the "
+             "first time it's used. Only applies with an NPU.")
 
         self.sl_sens = QSlider(Qt.Horizontal)
         self.sl_sens.setRange(30, 80)          # speech_threshold 0.30 .. 0.80
@@ -489,6 +501,8 @@ class SettingsWindow(QWidget):
             self.sp_ttl.setValue(int(self._get("overlay", "line_ttl_s")))
             self.sp_opacity.setValue(int(self._get("overlay", "opacity")))
             self.cb_overlay.setChecked(bool(self._get("overlay", "enabled")))
+            self.co_check.setCurrentIndex(
+                max(0, self.co_check.findData(self._get("stt", "language_check"))))
             model = self._get("stt", "model")
             mkeys = [k for k, _ in MODELS]
             if model not in mkeys and self.co_model.findData(model) < 0:

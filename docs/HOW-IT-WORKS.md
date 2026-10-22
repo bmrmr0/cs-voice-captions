@@ -66,7 +66,9 @@ never reaches the NPU.
 A clip has to pass every one of these before it becomes a caption:
 
 1. **It is speech**, per the voice detector (`vad.speech_threshold`).
-2. **It is long enough** (`vad.min_utterance_s`, half a second by default).
+2. **It is long enough** (`vad.min_utterance_s`, 0.7 s by default). On 157
+   saved clips, of the captions in the picked languages under 0.7 s of
+   speech, 1 of 6 was real; above it, real callouts take over.
    Most callouts are under two seconds, so this is kept short.
 3. **It is in a language you picked** (`translation.languages`). On short
    clips the guess is shaky even on the CPU: noise and mumbling come back
@@ -106,7 +108,7 @@ menu → Troubleshooting → Open log). Each start moves the last one to
 setting and the value it wanted:
 
 ```
-[audio:teammates] clip dropped: phrase ran 0.3s (vad.min_utterance_s wants 0.5s)
+[audio:teammates] clip dropped: phrase ran 0.3s (vad.min_utterance_s wants 0.7s)
 [stt] skipped, detected pl (translation.languages)
 [stt] skipped, detected en (translation.only_foreign)
 ```
