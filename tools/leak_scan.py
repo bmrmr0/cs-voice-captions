@@ -90,13 +90,41 @@ def _scan(blob, where, pats, hits):
             break                       # one report per thing per member is enough
 
 
-def scan(exe):
-    from PyInstaller.archive.readers import CArchiveReader, ZlibArchiveReader
+def scan(path):
+    """Scan the one-file exe, or the zip of the folder version: every file in
+    it as raw bytes, and inside any archive PyInstaller embedded."""
     pats = needles()
-    hits, members = [], 0
-    with open(exe, "rb") as f:
+    if path.lower().endswith(".zip"):
+        hits, members = [], 0
+        with tempfile.TemporaryDirectory(prefix="leak-scan-") as tmp:
+            with zipfile.ZipFile(path) as z:
+                z.extractall(tmp)
+            for root, _dirs, files in os.walk(tmp):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    rel = os.path.relpath(full, tmp).replace(os.sep, "/")
+                    members += 1
+                    with open(full, "rb") as f:
+                        _scan(f.read(), rel, pats, hits)
+                    if fn.lower().endswith(".exe"):
+                        members += _scan_archive(full, rel + ":", pats, hits)
+        return hits, members, [label for label, _, _ in pats if "UTF-16" not in label]
+    hits = []
+    with open(path, "rb") as f:
         _scan(f.read(), "exe (raw bytes)", pats, hits)
-    arc = CArchiveReader(exe)
+    members = _scan_archive(path, "", pats, hits)
+    return hits, members, [label for label, _, _ in pats if "UTF-16" not in label]
+
+
+def _scan_archive(exe, prefix, pats, hits):
+    """What PyInstaller packed into `exe`: each member, the Python modules
+    in its .pyz, and the files of any zip. Returns how many were scanned."""
+    from PyInstaller.archive.readers import CArchiveReader, ZlibArchiveReader
+    members = 0
+    try:
+        arc = CArchiveReader(exe)
+    except Exception:  # noqa: BLE001
+        return 0                        # not a PyInstaller exe
     names = list(arc.toc.keys()) if isinstance(arc.toc, dict) else [e[-1] for e in arc.toc]
     for name in names:
         try:
@@ -106,6 +134,7 @@ def scan(exe):
         if not data:
             continue
         members += 1
+        name = prefix + name
         _scan(data, name, pats, hits)
         if name.endswith(".pyz"):
             with tempfile.NamedTemporaryFile(suffix=".pyz", delete=False) as t:
@@ -126,14 +155,15 @@ def scan(exe):
                 for zi in z.infolist():
                     members += 1
                     _scan(z.read(zi), f"{name}:{zi.filename}", pats, hits)
-    return hits, members, [label for label, _, _ in pats if "UTF-16" not in label]
+    return members
 
 
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     hits, members, looked_for = scan(sys.argv[1])
-    print(f"[leak-scan] searched the exe and {members} members inside it for:")
+    print(f"[leak-scan] searched {os.path.basename(sys.argv[1])} and {members} "
+          "members inside it for:")
     for label in looked_for:
         print(f"[leak-scan]   {label}")
     if hits:

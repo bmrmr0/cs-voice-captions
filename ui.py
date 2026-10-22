@@ -59,6 +59,21 @@ def connection_look(state, detail="", paused=False):
     return color, text
 
 
+def overlay_wants(r, languages):
+    """Whether a caption goes on the overlay, which is for what you can't
+    understand yourself: chat only when it was translated from one of
+    `languages` (any, if empty), never English chat. Voice captions are
+    already limited to those languages (plus English, if asked for).
+    Status lines never reach this; they stay in the captions window."""
+    if r.get("kind") != "chat":
+        return True
+    if not r.get("translated"):
+        return False
+    picked = {str(c).lower() for c in languages or []}
+    lang = (r.get("lang") or "").lower().split("-")[0]
+    return not picked or lang in picked
+
+
 def game_screen(process_name="cs2.exe"):
     """The QScreen CS2's window is on, or None if it isn't running (or this
     isn't Windows). Matched by the monitor's top-left corner: Qt keeps each

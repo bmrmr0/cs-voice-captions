@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
 )
 
 import hotkeys
-from settings_window import LANGUAGES
 
 _STYLE = """
 QDialog { background:#121417; }
@@ -53,13 +52,13 @@ class WelcomeWindow(QDialog):
         lay.setSpacing(8)
 
         lay.addWidget(_label("Welcome to CS Voice Captions", "Title"))
-        langs = [dict(LANGUAGES).get(c, c) for c in cfg["translation"].get("languages", [])]
-        heard = (", ".join(langs[:-1]) + " and " + langs[-1] if len(langs) > 1
-                 else langs[0] if langs else "any language")
+        # No list of languages here: naming the default few reads as "only
+        # these are supported", and any language can be picked in Settings.
         lay.addWidget(_label(
-            f"It translates CS2 voice chat in <b>{heard}</b> into English, plus "
-            "text chat. It runs in the tray; captions appear in the captions "
-            "window and on an overlay over the game.", rich=True))
+            "It translates other players' CS2 voice chat and text chat into "
+            "English. It runs in the tray; captions appear in the captions "
+            "window and on an overlay over the game. Which languages it "
+            "translates is up to you, in Settings.", rich=True))
 
         lay.addWidget(_label("For the overlay", "Head"))
         lay.addWidget(_label(

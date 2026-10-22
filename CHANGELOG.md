@@ -24,6 +24,12 @@
 - An issue form for suggesting slang dictionary entries.
 - **The overlay is on by default**, with a switch for it in Settings. It
   was off until turned on from the tray, which nothing pointed out.
+- **A folder version** (`CSVoiceCaptions-folder.zip`) alongside the single
+  exe. It starts in 0.4 s instead of 2.4 s, since nothing is unpacked first.
+- **Automated tests** (`tests/`), run on GitHub for every push.
+- **Chat in a picked language no longer goes missing from the overlay** when
+  Google misjudges a short line: two transliterated words of Russian came
+  back as Tajik and were hidden. The alphabet now wins in that case.
 - **Welcome window on the first start:** where captions appear, what CS2
   needs for the overlay (Fullscreen Windowed) and for text chat
   (`-condebug`, with whether it's set), and the hotkeys. Reopen it from the

@@ -121,7 +121,8 @@ from audio import SoundcardSource, ProcessSource  # noqa: E402
 from stt import Transcriber                       # noqa: E402
 from transcript import TranscriptWriter           # noqa: E402
 from ui import (Bridge, Overlay, History, TrayController,  # noqa: E402
-                CondebugReminder, should_remind_condebug, bring_to_front)
+                CondebugReminder, should_remind_condebug, bring_to_front,
+                overlay_wants)
 from settings_window import SettingsWindow        # noqa: E402
 from reply_window import ReplyWindow              # noqa: E402
 import autostart                                  # noqa: E402
@@ -308,6 +309,15 @@ class ChatWorker(threading.Thread):
                     original, text, translated = text, tr, True
                     if tr is not source and translator.last_source:
                         source_lang = translator.last_source
+                    # Google guesses from very little: two transliterated
+                    # words of Russian came back as Tajik ("ласт афк"),
+                    # Bulgarian or Kyrgyz -- and the overlay, showing only
+                    # picked languages, hid them. Where the alphabet points
+                    # to a picked language and Google names one that isn't,
+                    # believe the alphabet.
+                    picked = [str(c).lower() for c in tcfg.get("languages", [])]
+                    if picked and source_lang not in picked:
+                        source_lang = next((c for c in langs if c in picked), source_lang)
             # Explain slang in what the player actually typed. Plain-ASCII
             # lines are never translated, but transliterated swearing
             # ("cyka blyat") is still worth explaining.
@@ -332,20 +342,6 @@ class ChatWorker(threading.Thread):
                 "lang": source_lang,
                 "ts": time.strftime("%H:%M:%S"),
             })
-
-
-def for_overlay(r, cfg):
-    """The overlay is for what you can't understand yourself: chat only when
-    it was translated from a language picked in Settings, never English chat
-    or status lines. Voice captions are already limited to those languages
-    (plus English, if that was asked for)."""
-    if r.get("kind") != "chat":
-        return True
-    if not r.get("translated"):
-        return False
-    picked = {str(c).lower() for c in cfg["translation"].get("languages", [])}
-    lang = (r.get("lang") or "").lower().split("-")[0]
-    return not picked or lang in picked
 
 
 def _lower_priority():
@@ -430,7 +426,8 @@ def main():
     bridge.new_caption.connect(
         lambda r: reply.heard(r.get("lang")) if r.get("translated") else None)
     bridge.new_caption.connect(
-        lambda r: (overlay.add_caption(r) if for_overlay(r, cfg) else None,
+        lambda r: (overlay.add_caption(r)
+                   if overlay_wants(r, cfg["translation"].get("languages", [])) else None,
                    history.add_caption(r), writer.add_caption(r)))
     bridge.status.connect(lambda t: (history.add_status(t), writer.add_status(t)))
 

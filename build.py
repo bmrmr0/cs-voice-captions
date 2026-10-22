@@ -182,10 +182,14 @@ def main():
                     help="keep a console window open for debugging")
     ap.add_argument("--no-clean", action="store_true",
                     help="reuse the previous build tree (faster, less safe)")
+    ap.add_argument("--folder", action="store_true",
+                    help="build the folder version (an exe beside its files, "
+                         "nothing unpacked at start) instead of the single exe")
     ap.add_argument("--release", action="store_true",
-                    help="build the published exe into release/: leak-scanned, "
-                         "with a SHA-256 checksum file. Fails if the scan finds "
-                         "anything identifying this machine")
+                    help="build what gets published into release/: the single "
+                         "exe and a zip of the folder version, both leak-scanned, "
+                         "with SHA-256 checksums. Fails if a scan finds anything "
+                         "identifying this machine")
     ap.add_argument("--dist", default="dist",
                     help="output folder. Building somewhere other than dist/ "
                          "lets the copy in dist/ keep running meanwhile; "
@@ -203,14 +207,33 @@ def main():
     if not args.no_clean:
         clean(args.dist)
     ver_file, version = version_file()
+    print(f"[build] {'release' if args.release else 'development'} build")
+    try:
+        if args.release:
+            exe = build(args, ver_file, onefile=True, dist=args.dist)
+            folder = build(args, ver_file, onefile=False,
+                           dist=os.path.join("build", "folder-dist"))
+            release(exe, zip_folder(folder, args.dist), version)
+        elif args.folder:
+            build(args, ver_file, onefile=False, dist=args.dist)
+        else:
+            build(args, ver_file, onefile=True, dist=args.dist)
+    finally:
+        try:
+            os.remove(ver_file)
+        except OSError:
+            pass
 
+
+def build(args, ver_file, onefile, dist):
+    """Run PyInstaller once. Returns the exe (one-file) or the folder."""
     # Written as a spec file first, so DROP_FILES can be applied between
     # PyInstaller's analysis and the bundling; the command line can only
     # exclude whole Python modules.
     cmd = [
         sys.executable, "-m", "PyInstaller.utils.cliutils.makespec",
         "--specpath", ROOT,
-        "--onefile",
+        "--onefile" if onefile else "--onedir",
         "--name", NAME,
         # Drawn by app_icon.py, the same code the running app uses, so the
         # exe's icon and the window/tray icon can't drift apart.
@@ -230,7 +253,6 @@ def main():
         # Landing name is silero_vad.onnx at the bundle root; audio.py looks
         # for it there first.
         cmd += ["--add-data", f"{model}{os.pathsep}."]
-        print(f"[build] bundling Silero VAD from {os.path.basename(model)}")
     else:
         print("[build] WARNING: silero-vad not installed; the exe will fall "
               "back to webrtcvad, which cannot tell the game from a person")
@@ -245,7 +267,6 @@ def main():
     with open(flags, "w", encoding="utf-8") as f:
         json.dump({"release": bool(args.release)}, f)
     cmd += ["--add-data", f"{flags}{os.pathsep}."]
-    print(f"[build] {'release' if args.release else 'development'} build")
 
     for pkg in COLLECT_ALL:
         cmd += ["--collect-all", pkg]
@@ -261,44 +282,75 @@ def main():
     add_file_filter(spec)
 
     rc = subprocess.call([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
-                          "--distpath", os.path.join(ROOT, args.dist), spec], cwd=ROOT)
+                          "--distpath", os.path.join(ROOT, dist), spec], cwd=ROOT)
     if rc != 0:
         sys.exit(f"[build] PyInstaller failed with exit code {rc}")
 
-    exe = os.path.join(ROOT, args.dist, f"{NAME}.exe")
-    if not os.path.isfile(exe):
-        sys.exit("[build] PyInstaller reported success but produced no exe")
+    if onefile:
+        out = os.path.join(ROOT, dist, f"{NAME}.exe")
+        if not os.path.isfile(out):
+            sys.exit("[build] PyInstaller reported success but produced no exe")
+        size = os.path.getsize(out)
+    else:
+        out = os.path.join(ROOT, dist, NAME)
+        if not os.path.isfile(os.path.join(out, f"{NAME}.exe")):
+            sys.exit("[build] PyInstaller reported success but produced no folder")
+        size = sum(os.path.getsize(os.path.join(r, f))
+                   for r, _d, fs in os.walk(out) for f in fs)
+    print(f"[build] done: {_shown(out)} ({size / 2**20:.0f} MB)")
+    return out
 
-    size_mb = os.path.getsize(exe) / (1024 * 1024)
-    print(f"[build] done: {args.dist}/{NAME}.exe ({size_mb:.0f} MB), version {version}")
+
+def _shown(path):
+    """`path` relative to the repo for messages, or as is if it isn't
+    under it (another drive, for one)."""
     try:
-        os.remove(ver_file)
-    except OSError:
-        pass
-
-    if args.release:
-        release(exe, version)
+        return os.path.relpath(path, ROOT)
+    except ValueError:
+        return path
 
 
-def release(exe, version):
-    """Leak-scan the exe, then write its checksum. Refuses to finish if the
-    scan finds the builder's name, paths or machine in it."""
-    print("[build] scanning the exe for anything identifying this machine...")
-    rc = subprocess.call([sys.executable, os.path.join(ROOT, "tools", "leak_scan.py"), exe],
-                         cwd=ROOT)
-    if rc != 0:
-        os.remove(exe)
-        sys.exit("[build] RELEASE BLOCKED: the exe contains private data (see above); "
-                 "it has been deleted")
-    digest = hashlib.sha256()
-    with open(exe, "rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            digest.update(block)
+def zip_folder(folder, dist):
+    """The folder version as one zip, entries in a fixed order under a
+    CSVoiceCaptions/ folder, so unzipping gives a folder rather than a heap
+    of files."""
+    import zipfile
+    out = os.path.join(ROOT, dist, f"{NAME}-folder.zip")
+    files = sorted(os.path.join(r, f) for r, _d, fs in os.walk(folder) for f in fs)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+        for path in files:
+            arc = os.path.join(NAME, os.path.relpath(path, folder)).replace(os.sep, "/")
+            z.write(path, arc)
+    print(f"[build] zipped the folder version: {_shown(out)} "
+          f"({os.path.getsize(out) / 2**20:.0f} MB, {len(files)} files)")
+    return out
+
+
+def release(exe, folder_zip, version):
+    """Leak-scan both downloads, then write their checksums. Refuses to
+    finish if a scan finds the builder's name, paths or machine."""
+    for path in (exe, folder_zip):
+        print(f"[build] scanning {os.path.basename(path)} for anything identifying "
+              "this machine...")
+        rc = subprocess.call([sys.executable, os.path.join(ROOT, "tools", "leak_scan.py"),
+                              path], cwd=ROOT)
+        if rc != 0:
+            for p in (exe, folder_zip):
+                if os.path.exists(p):
+                    os.remove(p)
+            sys.exit("[build] RELEASE BLOCKED: a download contains private data (see "
+                     "above); both have been deleted")
     sums = os.path.join(os.path.dirname(exe), "SHA256SUMS.txt")
     with open(sums, "w", encoding="ascii", newline="\n") as f:
-        f.write(f"{digest.hexdigest()}  {os.path.basename(exe)}\n")
-    print(f"[build] release {version} ready in {os.path.relpath(os.path.dirname(exe), ROOT)}/: "
-          f"{os.path.basename(exe)} + SHA256SUMS.txt")
+        for path in (exe, folder_zip):
+            digest = hashlib.sha256()
+            with open(path, "rb") as g:
+                for block in iter(lambda: g.read(1 << 20), b""):
+                    digest.update(block)
+            f.write(f"{digest.hexdigest()}  {os.path.basename(path)}\n")
+    print(f"[build] release {version} ready in "
+          f"{_shown(os.path.dirname(exe))}/: {os.path.basename(exe)}, "
+          f"{os.path.basename(folder_zip)} + SHA256SUMS.txt")
 
 
 if __name__ == "__main__":

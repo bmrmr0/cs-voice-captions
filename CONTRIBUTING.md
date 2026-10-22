@@ -32,6 +32,19 @@ in PyTorch, a large download; not included in the exe):
 .venv\Scripts\pip install -r requirements-diarization.txt
 ```
 
+## Tests
+
+```bash
+.venv\Scripts\pip install pytest
+```
+
+```bash
+.venv\Scripts\python -m pytest -q tests
+```
+
+They run in a second, need no CS2, NPU or network, and run on GitHub for
+every push. Use made-up names and messages in them: never real players'.
+
 ## Build the exe
 
 ```bash
@@ -46,6 +59,9 @@ The exe lands in `dist/`. Options:
 
 - `--console` keeps a console window open, the quickest way to see why
   something isn't working.
+- `--folder` builds the folder version instead: the exe beside its files in
+  `dist/CSVoiceCaptions/`. It starts in about 0.4 s instead of 2.4 s,
+  because nothing has to be unpacked first.
 - `--dist <folder>` builds somewhere else. Windows won't let a running exe be
   replaced, so this lets you build while the app is running and swap the file
   afterwards. A newer build started while an older one runs takes over from it.
@@ -60,16 +76,17 @@ The exe lands in `dist/`. Options:
    .venv\Scripts\python build.py --release
    ```
 
-   This builds into `release/`, then unpacks every file inside the exe and
-   scans it for anything identifying the machine that built it (user name,
-   home and AppData paths, the checkout path, machine name, git identity). If
-   anything turns up, the exe is deleted and the build fails. Otherwise it
-   writes `SHA256SUMS.txt`.
+   This builds both downloads into `release/`: `CSVoiceCaptions.exe` and
+   `CSVoiceCaptions-folder.zip`. It then unpacks every file in each and scans
+   it for anything identifying the machine that built it (user name, home and
+   AppData paths, the checkout path, machine name, git identity). If anything
+   turns up, both are deleted and the build fails. Otherwise it writes
+   `SHA256SUMS.txt` for the two.
 3. Commit, push, and publish, letting GitHub create the tag on the exact
    commit the exe was built from:
 
    ```bash
-   gh release create v1.2.3 release/CSVoiceCaptions.exe release/SHA256SUMS.txt --target <commit> --title "CS Voice Captions 1.2.3" --notes-file <notes>
+   gh release create v1.2.3 release/CSVoiceCaptions.exe release/CSVoiceCaptions-folder.zip release/SHA256SUMS.txt --target <commit> --title "CS Voice Captions 1.2.3" --notes-file <notes>
    ```
 
 ## Layout
