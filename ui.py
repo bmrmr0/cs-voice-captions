@@ -449,7 +449,7 @@ class TrayController:
     def __init__(self, app, overlay, history, paused_event, stop_event,
                  overlay_enabled=False, on_overlay_toggle=None, on_quit=None,
                  chat_cfg=None, on_chat_toggle=None, on_settings=None,
-                 on_reply=None):
+                 on_reply=None, keys=None):
         self.app = app
         self.overlay = overlay
         self.history = history
@@ -459,6 +459,8 @@ class TrayController:
         self._on_overlay_toggle = on_overlay_toggle
         self._on_quit = on_quit
         self._chat_cfg = chat_cfg if chat_cfg is not None else {}
+        # Hotkeys shown beside their menu items: {action name: "Ctrl+Alt+P"}.
+        self._keys = keys or {}
         self._connection = ("starting", "")
         self._on_chat_toggle = on_chat_toggle
 
@@ -475,14 +477,14 @@ class TrayController:
         self.act_lock = QAction("", self.menu)
         self.act_lock.triggered.connect(self.toggle_lock)
 
-        self.act_hist = QAction("Show captions window", self.menu)
+        self.act_hist = QAction(self._with_key("Show captions window", "show_window"), self.menu)
         self.act_hist.triggered.connect(self.show_window)
 
         self.act_chat = QAction("Show text chat", self.menu)
         self.act_chat.setCheckable(True)
         self.act_chat.triggered.connect(self.toggle_chat)
 
-        act_reply = QAction("Reply in chat…", self.menu)
+        act_reply = QAction(self._with_key("Reply in chat…", "reply"), self.menu)
         act_reply.setToolTip("Type English, get it translated onto the clipboard")
         if on_reply is not None:
             act_reply.triggered.connect(on_reply)
@@ -608,12 +610,19 @@ class TrayController:
         from version import __version__
         self.tray.setToolTip(f"CS Voice Captions {__version__} — {text}")
         self.history.set_connection_look(color, text, tip)
-        self.act_overlay.setText("Hide game overlay" if self.overlay_visible
-                                 else "Show game overlay")
+        self.act_pause.setText(self._with_key(self.act_pause.text(), "toggle_pause"))
+        self.act_overlay.setText(self._with_key(
+            "Hide game overlay" if self.overlay_visible else "Show game overlay",
+            "toggle_overlay"))
         self.act_lock.setText("Lock overlay (click-through)" if not self.overlay.locked
                               else "Unlock overlay to move it")
         self.act_lock.setEnabled(self.overlay_visible or self.overlay.locked)
         self.act_chat.setChecked(bool(self._chat_cfg.get("show", True)))
+
+    def _with_key(self, label, action):
+        """A menu label with its hotkey, which QMenu right-aligns after a tab."""
+        key = self._keys.get(action)
+        return f"{label}\t{key}" if key else label
 
     def notify(self, title, message):
         try:

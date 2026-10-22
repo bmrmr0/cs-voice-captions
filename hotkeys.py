@@ -71,6 +71,32 @@ def parse(spec):
     return mods | MOD_NOREPEAT, vk
 
 
+# What each configured hotkey does, in words, for the status line, the tray
+# menu and the settings window.
+ACTIONS = {
+    "toggle_pause": "Pause / resume",
+    "toggle_overlay": "Show / hide the overlay",
+    "show_window": "Bring up the captions window",
+    "reply": "Reply in chat",
+}
+
+
+def pretty(spec):
+    """"ctrl+alt+p" -> "Ctrl+Alt+P", the way Windows writes shortcuts."""
+    parts = [p.strip() for p in (spec or "").split("+") if p.strip()]
+    return "+".join(p.upper() if len(p) == 1 or (p[0] in "fF" and p[1:].isdigit())
+                    else p.capitalize() for p in parts)
+
+
+def bound(cfg_hotkeys):
+    """[(action name, pretty key)] for every hotkey set in the config."""
+    cfg_hotkeys = cfg_hotkeys or {}
+    if not cfg_hotkeys.get("enabled", True):
+        return []
+    return [(name, pretty(cfg_hotkeys.get(name, "")))
+            for name in ACTIONS if (cfg_hotkeys.get(name) or "").strip()]
+
+
 class HotkeyManager(threading.Thread):
     """Registers hotkeys on its own thread and pumps their messages.
 
@@ -146,12 +172,16 @@ class HotkeyManager(threading.Thread):
             except Exception:  # noqa: BLE001
                 pass
 
-    def summary(self):
-        """One line for the status area, or None if nothing got bound."""
+    def summary(self, names=None):
+        """One line for the status area, or None if nothing got bound.
+        `names` maps a key spec to what it does."""
+        self._ready.wait(timeout=2.0)
         if not self.registered:
             return None
-        self._ready.wait(timeout=2.0)
-        return "Hotkeys: " + ", ".join(s for s, _ in self.registered)
+        names = names or {}
+        return "Hotkeys: " + " · ".join(
+            f"{pretty(s)} {names[s].lower()}" if s in names else pretty(s)
+            for s, _ in self.registered)
 
 
 def start(cfg_hotkeys, handlers, stop_event=None):

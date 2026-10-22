@@ -75,6 +75,17 @@ show whether CS2 is being heard:
 | 🔴 **Not capturing** | Capture stopped; the log says why. |
 | ⚪ **Paused** | You paused it. |
 
+The captions appear in the captions window and as an overlay on top of the
+game (CS2 must be in **Fullscreen Windowed**). These hotkeys work while CS2
+has focus; they're also listed in the tray menu and in Settings:
+
+| Hotkey | Action |
+| --- | --- |
+| `Ctrl+Alt+O` | Show / hide the overlay |
+| `Ctrl+Alt+P` | Pause / resume |
+| `Ctrl+Alt+C` | Bring up the captions window |
+| `Ctrl+Alt+R` | Reply in chat: type English, get the translation on the clipboard |
+
 <details>
 <summary><b>Tray menu, settings and hotkeys</b></summary>
 
@@ -87,13 +98,6 @@ setting for what it does. Changes apply immediately.
 
 Right-click a player's name in the captions window to mute their chat;
 unmute them in Settings.
-
-| Hotkey | Action |
-| --- | --- |
-| `Ctrl+Alt+P` | Pause / resume |
-| `Ctrl+Alt+O` | Show / hide the overlay |
-| `Ctrl+Alt+C` | Bring up the captions window |
-| `Ctrl+Alt+R` | Reply in chat: type English, get the translation on the clipboard |
 
 Everything else, including rebinding the hotkeys, is in the
 [configuration guide](docs/CONFIGURATION.md).

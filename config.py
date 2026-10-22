@@ -152,10 +152,12 @@ DEFAULTS = {
         "max_speakers": 5,              # roughly a team's size
     },
 
-    # On-screen overlay drawn ON TOP of the game. Off by default -- the normal
-    # window below is the default display. Toggle it from the tray menu.
+    # On-screen overlay drawn ON TOP of the game (CS2 must be in Fullscreen
+    # Windowed). Toggle it with Ctrl+Alt+O, the tray menu or Settings. It
+    # only draws while there are captions, so it's invisible the rest of
+    # the time.
     "overlay": {
-        "enabled": False,
+        "enabled": True,
         "max_lines": 5,
         "font_size": 20,
         "x": 40,

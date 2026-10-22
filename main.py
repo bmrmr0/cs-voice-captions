@@ -339,7 +339,12 @@ def main():
     def on_setting_change(section, key):
         # Everything else the window changes is read live by its consumer;
         # the overlay has widgets to redraw and the transcript a file to open.
-        if section == "overlay":
+        if (section, key) == ("overlay", "enabled"):
+            # The tray owns showing and hiding (and remembers it); bring it
+            # in line with the checkbox.
+            if bool(cfg["overlay"]["enabled"]) != tray.overlay_visible:
+                tray.toggle_overlay()
+        elif section == "overlay":
             overlay.apply_settings()
         elif (section, key) == ("transcript", "enabled"):
             path = writer.set_enabled(cfg["transcript"]["enabled"])
@@ -382,7 +387,8 @@ def main():
                           chat_cfg=cfg["chat"],
                           on_chat_toggle=lambda _shown: config_mod.save(cfg),
                           on_settings=settings.open,
-                          on_reply=reply.open)
+                          on_reply=reply.open,
+                          keys=dict(hotkeys_mod.bound(cfg.get("hotkeys"))))
 
     # Hotkey callbacks fire on the hotkey thread; signals hop them to the GUI
     # thread before anything touches a widget.
@@ -438,7 +444,9 @@ def main():
                                "in config.json")
 
     if hk is not None:
-        summary = hk.summary()
+        summary = hk.summary({
+            (cfg["hotkeys"].get(name) or "").strip(): hotkeys_mod.ACTIONS[name]
+            for name in hotkeys_mod.ACTIONS})
         if summary:
             bridge.status.emit(summary)
     if writer.enabled and writer.path:

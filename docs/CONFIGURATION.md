@@ -92,7 +92,7 @@ window.
 | `overlay.width` | `720` | Width, in pixels. | Settings |
 | `overlay.max_lines` | `5` | Captions shown at once. | Settings |
 | `overlay.line_ttl_s` | `12` | Seconds each caption stays. | Settings |
-| `overlay.enabled` | `false` | Show the overlay on start. Remembered from the tray menu. | |
+| `overlay.enabled` | `true` | Show the overlay over the game. Also `Ctrl+Alt+O` and the tray menu, and remembered from either. | Settings |
 | `overlay.position` | `"custom"` | `"custom"` (where you dragged it), or `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` on the main screen. At the bottom it grows upwards. | Settings |
 | `overlay.x`, `overlay.y` | `40` | Position. Set by dragging the unlocked overlay. | |
 | `history.max_lines` | `500` | Lines kept in the captions window. | |

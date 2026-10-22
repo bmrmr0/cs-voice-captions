@@ -22,6 +22,11 @@
 - **Overlay position presets** (top or bottom; left, centre or right). At the
   bottom of the screen the overlay grows upwards as captions arrive.
 - An issue form for suggesting slang dictionary entries.
+- **The overlay is on by default**, with a switch for it in Settings. It
+  was off until turned on from the tray, which nothing pointed out.
+- **Hotkeys are shown** beside their items in the tray menu, in a Hotkeys
+  section in Settings, and with what each does in the startup message.
+- **Settings in two columns**, so the window fits on a laptop screen.
 - **Polish is captioned by default** too, alongside Russian and Ukrainian.
 - **Smaller exe: 145 MB instead of 200 MB**, and less to unpack on every
   start. Dropped what the app never loads: OpenVINO's GPU plugin, importers

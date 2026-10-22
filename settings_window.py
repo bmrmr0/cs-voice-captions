@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 import autostart
 import config as config_mod
+import hotkeys
 
 # Every setting this window owns, as (section, key). "Restore defaults" resets
 # exactly these and nothing else.
@@ -33,7 +34,7 @@ OWNED = [
     ("vad", "min_utterance_s"), ("vad", "speech_threshold"), ("stt", "model"),
     ("overlay", "font_size"), ("overlay", "width"),
     ("overlay", "max_lines"), ("overlay", "line_ttl_s"),
-    ("overlay", "position"),
+    ("overlay", "position"), ("overlay", "enabled"),
     ("transcript", "enabled"), ("updates", "check"),
 ]
 
@@ -133,7 +134,8 @@ class SettingsWindow(QWidget):
         columns.setSpacing(14)
         for groups in ((self._build_captions(), self._build_languages(),
                         self._build_general()),
-                       (self._build_voice(), self._build_overlay())):
+                       (self._build_voice(), self._build_overlay(),
+                        self._build_hotkeys())):
             col = QVBoxLayout()
             for g in groups:
                 col.addWidget(g)
@@ -293,6 +295,14 @@ class SettingsWindow(QWidget):
             "The captions drawn over the game. Turn it on from the tray menu; "
             "it needs CS2 in Fullscreen Windowed mode.")
         form = QFormLayout(box)
+        key = dict(hotkeys.bound(self.cfg.get("hotkeys"))).get("toggle_overlay")
+        self.cb_overlay = _tipped(QCheckBox(
+            "Show the overlay in game" + (f"  ({key})" if key else "")),
+            "Captions drawn over CS2. Needs CS2 in Fullscreen Windowed: "
+            "exclusive fullscreen covers every other window. Invisible "
+            "until there is something to show.")
+        self.cb_overlay.toggled.connect(lambda v: self._set("overlay", "enabled", v))
+        form.addRow(self.cb_overlay)
         self.sp_font = self._spin(12, 40, 1, " px", "overlay", "font_size")
         self.sp_width = self._spin(400, 1600, 20, " px", "overlay", "width")
         self.sp_lines = self._spin(1, 10, 1, "", "overlay", "max_lines")
@@ -312,6 +322,22 @@ class SettingsWindow(QWidget):
              "Where on the main screen the overlay sits. At the bottom it "
              "grows upwards as captions arrive. Dragging the overlay (unlock "
              "it from the tray menu) puts it wherever you drop it.")
+        return box
+
+    def _build_hotkeys(self):
+        box = _tipped(QGroupBox("Hotkeys"),
+            "Work while CS2 has focus. To change them, set hotkeys.* in "
+            "config.json; see the configuration guide.")
+        form = QFormLayout(box)
+        keys = hotkeys.bound(self.cfg.get("hotkeys"))
+        for name, key in keys:
+            k = QLabel(key)
+            k.setStyleSheet("color:#c9cdd3; font-family:Consolas, monospace;")
+            form.addRow(QLabel(hotkeys.ACTIONS[name]), k)
+        if not keys:
+            off = QLabel("Turned off in config.json.")
+            off.setObjectName("Hint")
+            form.addRow(off)
         return box
 
     def _build_general(self):
@@ -456,6 +482,7 @@ class SettingsWindow(QWidget):
             self.sp_width.setValue(int(self._get("overlay", "width")))
             self.sp_lines.setValue(int(self._get("overlay", "max_lines")))
             self.sp_ttl.setValue(int(self._get("overlay", "line_ttl_s")))
+            self.cb_overlay.setChecked(bool(self._get("overlay", "enabled")))
             model = self._get("stt", "model")
             mkeys = [k for k, _ in MODELS]
             if model not in mkeys and self.co_model.findData(model) < 0:
