@@ -344,10 +344,13 @@ def _lower_priority():
     if not sys.platform.startswith("win"):
         return
     try:
-        import ctypes
-        BELOW_NORMAL_PRIORITY_CLASS = 0x4000
-        k32 = ctypes.windll.kernel32
-        k32.SetPriorityClass(k32.GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS)
+        # psutil, not a bare ctypes SetPriorityClass(GetCurrentProcess(),
+        # ...): without declared types ctypes cut the 64-bit pseudo-handle
+        # down to 32 bits, the call failed silently, and the app always ran
+        # at normal priority.
+        import psutil
+        psutil.Process().nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        print("[main] running at below-normal priority")
     except Exception as e:  # noqa: BLE001
         print(f"[main] could not lower priority: {e}")
 
