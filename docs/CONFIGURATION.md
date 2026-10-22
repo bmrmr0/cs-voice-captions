@@ -96,6 +96,7 @@ window.
 | `overlay.position` | `"custom"` | `"custom"` (where you dragged it), or `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right` on the main screen. At the bottom it grows upwards. | Settings |
 | `overlay.x`, `overlay.y` | `40` | Position. Set by dragging the unlocked overlay. | |
 | `history.max_lines` | `500` | Lines kept in the captions window. | |
+| `history.geometry` | `""` | Where the captions window was left, and its size. Saved when you move or resize it; delete it to reset. | |
 | `hotkeys.toggle_pause` | `"ctrl+alt+p"` | Pause / resume. | |
 | `hotkeys.toggle_overlay` | `"ctrl+alt+o"` | Show / hide the overlay. | |
 | `hotkeys.show_window` | `"ctrl+alt+c"` | Bring up the captions window. | |

@@ -174,6 +174,7 @@ DEFAULTS = {
     "history": {
         "enabled": True,
         "max_lines": 500,             # cap so a long session can't eat memory
+        "geometry": "",               # where it was left; saved by moving it
     },
 
     # Global hotkeys, active even while CS2 has focus. Blank = unbound.

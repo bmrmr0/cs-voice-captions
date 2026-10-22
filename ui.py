@@ -369,13 +369,26 @@ class Overlay(QWidget):
 
 
 class History(QWidget):
-    def __init__(self, hcfg=None, on_settings=None, on_clear=None, on_mute=None):
+    def __init__(self, hcfg=None, on_settings=None, on_clear=None, on_mute=None,
+                 on_geometry=None):
         super().__init__()
         self._on_clear = on_clear
         self._on_mute = on_mute
         hcfg = hcfg or {}
         self.setWindowTitle("CS Voice Captions")
         self.resize(580, 640)
+        # Where the window was left, restored on the next start. Saved a
+        # moment after a move or resize ends, not on every pixel of a drag.
+        self._on_geometry = on_geometry
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.setInterval(500)
+        self._geometry_timer.timeout.connect(self._save_geometry)
+        saved = hcfg.get("geometry")
+        if saved:
+            from PySide6.QtCore import QByteArray
+            # Qt moves it back onto a screen if that monitor is gone.
+            self.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii")))
         self.setStyleSheet("History { background:#121417; }")
         self.view = QTextEdit()
         self.view.setReadOnly(True)
@@ -420,6 +433,21 @@ class History(QWidget):
             bar.addWidget(b)
         layout.addLayout(bar)
         layout.addWidget(self.view)
+
+    def moveEvent(self, ev):
+        super().moveEvent(ev)
+        if self._on_geometry and self.isVisible():
+            self._geometry_timer.start()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        if self._on_geometry and self.isVisible():
+            self._geometry_timer.start()
+
+    def _save_geometry(self):
+        if self.isMinimized():
+            return              # keep the place it will be restored to
+        self._on_geometry(bytes(self.saveGeometry().toBase64()).decode("ascii"))
 
     def set_connection_look(self, color, text, tooltip=""):
         self._conn.setText(f"<span style='color:{color};font-size:16px'>&#9679;</span>"

@@ -382,8 +382,13 @@ def main():
             config_mod.save(cfg)
         bridge.status.emit(f"Muted {name}'s chat. Unmute in Settings.")
 
+    def save_history_geometry(geometry):
+        cfg.setdefault("history", {})["geometry"] = geometry
+        config_mod.save(cfg)
+
     history = History(cfg.get("history", {}), on_settings=settings.open,
-                      on_clear=overlay.clear, on_mute=mute_player)
+                      on_clear=overlay.clear, on_mute=mute_player,
+                      on_geometry=save_history_geometry)
 
     bridge.new_caption.connect(
         lambda r: (overlay.add_caption(r) if for_overlay(r, cfg) else None,
