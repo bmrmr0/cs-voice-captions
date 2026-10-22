@@ -511,6 +511,5 @@ class SettingsWindow(QWidget):
 
     def open(self):
         self.refresh()          # the tray may have changed something meanwhile
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        from ui import bring_to_front
+        bring_to_front(self)

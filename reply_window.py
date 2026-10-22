@@ -97,9 +97,8 @@ class ReplyWindow(QWidget):
         self.lang.setCurrentIndex(codes.index(code) if code in codes else 0)
         self.lang.blockSignals(False)
         self.input.selectAll()
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        from ui import bring_to_front
+        bring_to_front(self)
         self.input.setFocus()
 
     def keyPressEvent(self, ev):

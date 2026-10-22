@@ -5,6 +5,7 @@ The overlay is a normal top-level window painted on top of the game. It never
 injects into or hooks the game, which is what keeps the whole thing anti-cheat
 safe. Run CS2 in *Fullscreen Windowed* mode so the overlay is visible.
 """
+import sys
 import time
 from html import escape as html_escape
 
@@ -56,6 +57,43 @@ def connection_look(state, detail="", paused=False):
     if state == "waiting" and detail == "reconnecting":
         text = "Reconnecting to CS2…"
     return color, text
+
+
+def bring_to_front(widget):
+    """Show `widget` restored and in front, with the keyboard focus.
+
+    show() and raise_() alone do neither reliably: a minimized window stays
+    minimized, and Windows won't let a background app take the foreground
+    from the game -- it flashes the taskbar button instead. A hotkey press
+    is ours, though, so for that moment the input of the window in front
+    can be shared with ours and the focus handed over."""
+    if widget.isMinimized():
+        widget.showNormal()
+    widget.show()
+    widget.raise_()
+    widget.activateWindow()
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        hwnd = int(widget.winId())
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)                      # SW_RESTORE
+        front = user32.GetForegroundWindow()
+        if front == hwnd:
+            return
+        theirs = user32.GetWindowThreadProcessId(front, None)
+        mine = kernel32.GetCurrentThreadId()
+        attached = theirs and theirs != mine and user32.AttachThreadInput(mine, theirs, True)
+        try:
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(mine, theirs, False)
+    except Exception as e:  # noqa: BLE001
+        print(f"[ui] could not bring the window to the front: {e}")
 
 
 def _chat_tag(r):
@@ -580,9 +618,7 @@ class TrayController:
             QDesktopServices.openUrl(QUrl(self._update_url))
 
     def show_window(self):
-        self.history.show()
-        self.history.raise_()
-        self.history.activateWindow()
+        bring_to_front(self.history)
 
     def quit(self):
         self.stop_event.set()
