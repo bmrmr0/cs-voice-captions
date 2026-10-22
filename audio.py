@@ -342,10 +342,10 @@ class _Resampler:
     Plain NumPy: SciPy was 30 MB of the exe for this alone.
     """
 
-    def __init__(self, src_rate):
+    def __init__(self, src_rate, dst_rate=SAMPLE_RATE):
         from math import gcd
-        g = gcd(int(src_rate), SAMPLE_RATE)
-        self.up = SAMPLE_RATE // g
+        g = gcd(int(src_rate), int(dst_rate))
+        self.up = int(dst_rate) // g
         self.down = int(src_rate) // g
         h = _lowpass(self.up, self.down)
         taps = -(-len(h) // self.up)                 # per phase, rounded up
@@ -378,6 +378,55 @@ class _Resampler:
         base, phase = pos // self.up - start, pos % self.up
         idx = base[:, None] - np.arange(self._taps)[None, :]
         return np.einsum("ij,ij->i", x[idx], self._phases[phase]).astype(np.float32)
+
+
+class _ProcTapConverter:
+    """Stands in for proc-tap's own format converter, which needs SciPy.
+
+    proc-tap hands over 48 kHz float32 stereo. When Windows gives it exactly
+    that, nothing is converted; otherwise (a device at 44.1 kHz, say, where
+    it falls back to 16-bit) it builds a converter -- and without SciPy,
+    which the exe leaves out, that raised and CS2-only capture failed. This
+    does the same job with the app's own resampler: same arguments, same
+    convert(bytes) -> bytes. The app mixes to mono anyway, so it does that
+    first and copies the result to each output channel.
+    """
+
+    _DTYPES = {"int16": ("<i2", 32768.0), "int32": ("<i4", 2147483648.0),
+               "int24_32": ("<i4", 2147483648.0), "float32": ("<f4", 1.0)}
+
+    def __init__(self, src_rate, src_channels, src_width, src_format=None,
+                 dst_rate=48000, dst_channels=2, dst_width=4, dst_format=None, **_):
+        fmt = str(src_format or ("float32" if src_width == 4 else "int16")).lower()
+        if fmt not in self._DTYPES:
+            raise ValueError(f"unsupported capture format {fmt}")
+        self._dtype, self._scale = self._DTYPES[fmt]
+        self._channels = max(1, int(src_channels))
+        self._out_channels = max(1, int(dst_channels))
+        self._resampler = _Resampler(int(src_rate), int(dst_rate))
+        self._carry = b""               # a frame split across two reads
+
+    def convert(self, data):
+        frame = np.dtype(self._dtype).itemsize * self._channels
+        data = self._carry + bytes(data)
+        usable = len(data) - len(data) % frame
+        self._carry = data[usable:]
+        x = np.frombuffer(data[:usable], dtype=self._dtype).astype(np.float32) / self._scale
+        mono = x.reshape(-1, self._channels).mean(axis=1)
+        y = self._resampler.process(mono)
+        return np.repeat(y[:, None], self._out_channels, axis=1).astype("<f4").tobytes()
+
+
+def _use_own_proctap_converter():
+    """Swap _ProcTapConverter in for proc-tap's, and keep its "scipy not
+    available" warning out of the log: it no longer applies."""
+    import logging
+    logging.getLogger("proctap.backends.converter").setLevel(logging.ERROR)
+    try:
+        from proctap.backends import windows as proctap_windows
+        proctap_windows.AudioConverter = _ProcTapConverter
+    except Exception as e:  # noqa: BLE001
+        print(f"[audio] could not install the capture format converter: {e}")
 
 
 class _Framer:
@@ -633,6 +682,7 @@ class ProcessSource(_BaseSource):
 
     def frames(self):
         try:
+            _use_own_proctap_converter()
             from proctap import ProcessAudioCapture
         except Exception as e:  # noqa: BLE001
             yield from self._fallback(f"per-process capture unavailable ({e})")
