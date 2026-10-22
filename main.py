@@ -225,7 +225,7 @@ class ChatWorker(threading.Thread):
         self.stop_event = stop_event
 
     def run(self):
-        from translate import make_text_translator, _guess_sources
+        from translate import make_text_translator, _guess_sources, pick_source_language
         import glossary
         tcfg = self.cfg.get("translation", {})
         target = tcfg.get("target_language", "English")
@@ -307,17 +307,9 @@ class ChatWorker(threading.Thread):
                       else translator.translate(source))
                 if tr and tr.strip() and tr.strip() != text.strip():
                     original, text, translated = text, tr, True
-                    if tr is not source and translator.last_source:
-                        source_lang = translator.last_source
-                    # Google guesses from very little: two transliterated
-                    # words of Russian came back as Tajik ("ласт афк"),
-                    # Bulgarian or Kyrgyz -- and the overlay, showing only
-                    # picked languages, hid them. Where the alphabet points
-                    # to a picked language and Google names one that isn't,
-                    # believe the alphabet.
-                    picked = [str(c).lower() for c in tcfg.get("languages", [])]
-                    if picked and source_lang not in picked:
-                        source_lang = next((c for c in langs if c in picked), source_lang)
+                    source_lang = pick_source_language(
+                        translator.last_source if tr is not source else "",
+                        langs, tcfg.get("languages", []))
             # Explain slang in what the player actually typed. Plain-ASCII
             # lines are never translated, but transliterated swearing
             # ("cyka blyat") is still worth explaining.
@@ -559,9 +551,7 @@ def main():
 
         dlg.finished.connect(done)
         reminders.append(dlg)            # keep it alive while it is open
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
+        bring_to_front(dlg)              # not left behind CS2
 
     QTimer.singleShot(1500, remind_condebug)
     if cfg.get("updates", {}).get("check", True):
@@ -569,9 +559,12 @@ def main():
 
     # Qt's event loop blocks Python's signal handling, so Ctrl+C in the console
     # is only noticed if the interpreter gets a slice of time now and then.
+    # Only from source: the built exe has no console to press it in, and the
+    # timer would wake the app four times a second for nothing.
     ticker = QTimer()
-    ticker.timeout.connect(lambda: None)
-    ticker.start(250)
+    if not getattr(sys, "frozen", False):
+        ticker.timeout.connect(lambda: None)
+        ticker.start(250)
 
     from version import __version__
     print(f"[main] CS Voice Captions {__version__} running. "

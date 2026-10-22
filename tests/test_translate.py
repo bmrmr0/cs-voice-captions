@@ -50,3 +50,13 @@ def test_reply_translator_names_its_source():
     t = translate.make_reply_translator({"chat": {}}, "ru")
     assert (t.source, t.target) == ("en", "ru")
     assert translate.make_reply_translator({"chat": {"translator": "off"}}, "ru") is None
+
+
+def test_source_language_prefers_the_alphabet_over_a_stray_guess():
+    pick = translate.pick_source_language
+    # Google called two transliterated Russian words Tajik.
+    assert pick("tg", ["ru"], ["ru", "uk", "pl"]) == "ru"
+    assert pick("ru", ["ru"], ["ru", "uk", "pl"]) == "ru"
+    assert pick("de", [], ["ru", "uk", "pl"]) == "de"         # nothing to go on
+    assert pick("tg", ["ru"], []) == "tg"                      # any language picked
+    assert pick("", ["pl"], ["ru"]) == "pl"                    # no detection at all

@@ -100,6 +100,19 @@ def _guess_sources(text):
     return []
 
 
+def pick_source_language(detected, guesses, picked):
+    """What a chat line was written in: the translator's detection, unless
+    it names a language that wasn't picked while the alphabet points to one
+    that was. Google guesses from very little -- two transliterated words of
+    Russian came back as Tajik, Bulgarian or Kyrgyz -- and the overlay,
+    showing only picked languages, then hid them."""
+    picked = [str(c).lower() for c in picked or []]
+    lang = (detected or "").lower() or (guesses[0] if guesses else "")
+    if picked and lang not in picked:
+        lang = next((c for c in guesses if c in picked), lang)
+    return lang
+
+
 def _same_text(a, b):
     """True if a "translation" is really just the input handed back, which is
     what MyMemory does when told the wrong source language."""
