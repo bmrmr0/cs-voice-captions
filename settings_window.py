@@ -116,7 +116,7 @@ class SettingsWindow(QWidget):
         from version import __version__
         self.setWindowTitle(f"CS Voice Captions {__version__} — Settings")
         self.setStyleSheet(_STYLE)
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(860)
 
         # Saving is debounced: dragging a slider fires dozens of changes.
         self._save_timer = QTimer(self)
@@ -126,11 +126,20 @@ class SettingsWindow(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 8, 14, 14)
-        root.addWidget(self._build_captions())
-        root.addWidget(self._build_languages())
-        root.addWidget(self._build_voice())
-        root.addWidget(self._build_overlay())
-        root.addWidget(self._build_general())
+        # Two columns: in one the window grew taller than a laptop screen.
+        # What is shown on the left, how it is heard and drawn on the right;
+        # the groups are split so the columns come out about the same height.
+        columns = QHBoxLayout()
+        columns.setSpacing(14)
+        for groups in ((self._build_captions(), self._build_languages(),
+                        self._build_general()),
+                       (self._build_voice(), self._build_overlay())):
+            col = QVBoxLayout()
+            for g in groups:
+                col.addWidget(g)
+            col.addStretch(1)
+            columns.addLayout(col, 1)
+        root.addLayout(columns)
 
         note = QLabel("Changes apply immediately and are saved automatically.")
         note.setObjectName("Hint")
