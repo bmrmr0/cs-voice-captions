@@ -23,6 +23,13 @@ Two downloads now: the single `CSVoiceCaptions.exe` as before, and
   два", "helal olsun") and insults. Lines in plain Latin letters are checked
   against the dictionaries of the languages you picked.
 - **Polish is captioned by default**, alongside Russian and Ukrainian.
+- **Better chat translations of slang**, from reviewing real captions: laughter
+  on its own ("ахах") reads "Haha" instead of nonsense, short forms like "мб"
+  (maybe) and "кик" (kick) are understood, and a line with slang swapped in is
+  translated as the language it is, not left half-untranslated.
+- **Swearing is translated, not described or left as is:** insults read as
+  what a player would say in English, and transliterated swearing the
+  translators leave behind ("blyat", "suka") becomes English in the caption.
 
 ### Lighter on the game
 - **About a sixth of the CPU per spoken clip** (0.6 CPU-seconds instead of

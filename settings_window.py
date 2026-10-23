@@ -267,9 +267,11 @@ class SettingsWindow(QWidget):
         _row(form, "Translation quality", self.co_model,
              "Better uses the larger \u201cmedium\u201d speech model. On 21 "
              "Russian test clips it translated 8 better than Standard and 4 "
-             "worse, and takes about 0.85 s a clip instead of 0.3 s. It "
-             "downloads 1.5 GB once and needs a couple of minutes to get "
-             "ready the first time. Applies the next time the app starts.")
+             "worse, and takes about 0.85 s a clip instead of 0.3 s on an "
+             "NPU. Without an NPU it runs on the CPU and takes several "
+             "seconds a clip, too slow for callouts. It downloads 1.5 GB "
+             "once and needs a couple of minutes to get ready the first "
+             "time. Applies the next time the app starts.")
         self.lb_model = QLabel("Restart the app to switch.")
         self.lb_model.setObjectName("Hint")
         self.lb_model.setVisible(False)

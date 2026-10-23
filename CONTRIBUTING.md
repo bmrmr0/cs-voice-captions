@@ -45,6 +45,22 @@ in PyTorch, a large download; not included in the exe):
 They run in a second, need no CS2, NPU or network, and run on GitHub for
 every push. Use made-up names and messages in them: never real players'.
 
+## Measuring the cost to the game
+
+`tools/perf_record.py` logs once a second, side by side, what the app is doing
+(CPU, overlay shown, clips and captions) and how CS2 runs (CPU, GPU, and with
+Intel's [PresentMon](https://github.com/GameTechDev/PresentMon) FPS and the
+worst frame time). PresentMon needs an administrator prompt.
+
+```bash
+.venv\Scripts\python tools\perf_record.py --presentmon path\to\PresentMon.exe
+```
+
+To measure without waiting for people to talk, `tools/speech_load.py` runs
+saved clips through the app's processing on a schedule, and
+`tools/overlay_load.py` shows the overlay with made-up captions; both write
+their phases next to the recording.
+
 ## Build the exe
 
 ```bash
