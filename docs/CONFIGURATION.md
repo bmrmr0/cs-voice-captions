@@ -141,7 +141,7 @@ the exe, the entry follows it the next time you run it.
 ## Slang dictionary
 
 Machine translation renders gaming slang word for word and gets it wrong:
-`есть!` is "Got him!", not "Yes"; `петух` is a severe insult, not "rooster".
+`есть!` is "Got him!", not "Yes"; `петух` means "faggot" or "prison bitch", not "rooster".
 A dictionary, `slang.json`, fixes what it can. It's built into the exe, and
 you can add your own words from **Settings → Edit dictionary…**, which opens
 your own `slang.json` in the app's data folder. Yours is merged over the
@@ -153,7 +153,7 @@ Each language code has up to three sections:
 {
   "ru": {
     "phrases": { "есть": "Got him!" },
-    "terms":   { "петух*": "severe insult (≈ 'bitch')" },
+    "terms":   { "петух*": "faggot, prison bitch (lit. 'rooster')" },
     "replace": { "вх": "wallhack" }
   },
   "any": {
@@ -169,6 +169,10 @@ Each language code has up to three sections:
   machine translation would garble the rest. A message that is *only* that
   word (repeats and punctuation aside) has nothing to garble, so its meaning
   becomes the caption, the way a phrase does.
+- Write the meaning as the English a player would actually say, swear
+  words and slurs included: "faggot", not "homophobic slur". A literal
+  meaning in brackets helps only when it explains the slang, as in
+  "bad player (lit. 'crayfish')".
 - **replace** swaps a word for its English *before* a chat line is sent to
   the translator, so the translation comes out right: `легко с вх играть`
   becomes "easy to play with wallhack" instead of "…with input". Use it only

@@ -1,7 +1,7 @@
 """Slang and swear-word dictionary.
 
 Machine translation renders gaming slang word for word, and so gets it wrong:
-"есть!" is "got him!", not "yes"; "петух" is a severe insult, not "rooster";
+"есть!" is "got him!", not "yes"; "петух" means "faggot", not "rooster";
 Google turned "ez" into "no" and "prefire" into "he prefers". This fills the
 gap with plain data -- slang.json, shipped in the exe -- plus an optional
 slang.json of the user's own in the settings folder, merged over it and picked
