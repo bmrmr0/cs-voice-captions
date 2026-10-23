@@ -192,11 +192,21 @@ def _show_without_focus(widget):
         import ctypes
         user32 = ctypes.windll.user32
         hwnd = int(widget.winId())
+        before = user32.GetForegroundWindow()
         if not widget.isVisible():
             widget.show()
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 4)                      # SW_SHOWNOACTIVATE
         set_over_game(widget, True)
+
+        def give_focus_back():
+            # Windows sometimes activates it anyway; if so, hand the focus
+            # straight back to whatever had it (the game), which it allows
+            # since this window has the focus at that moment.
+            if before and before != hwnd and user32.GetForegroundWindow() == hwnd:
+                user32.SetForegroundWindow(before)
+        give_focus_back()
+        QTimer.singleShot(150, give_focus_back)
     except Exception as e:  # noqa: BLE001
         print(f"[ui] could not show the window: {e}")
     finally:
@@ -212,15 +222,21 @@ def set_over_game(widget, on, behind=False):
         return
     try:
         import ctypes
-        HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+        import ctypes.wintypes as W
+        # Declared types: passed as plain ints, HWND_TOPMOST (-1) was cut to
+        # 32 bits, Windows rejected it as an invalid window (error 1400),
+        # and the window silently stayed under the game.
+        set_pos = ctypes.WINFUNCTYPE(W.BOOL, W.HWND, W.HWND, ctypes.c_int, ctypes.c_int,
+                                     ctypes.c_int, ctypes.c_int, W.UINT)(
+            ("SetWindowPos", ctypes.windll.user32))
+        HWND_TOPMOST, HWND_NOTOPMOST, HWND_BOTTOM = -1, -2, 1
         # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE, plus SWP_SHOWWINDOW
         flags = 0x0001 | 0x0002 | 0x0010 | (0x0040 if on else 0)
-        HWND_BOTTOM = 1
-        hwnd = int(widget.winId())
-        ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST if on else HWND_NOTOPMOST,
-                                          0, 0, 0, 0, flags)
+        hwnd = W.HWND(int(widget.winId()))
+        if not set_pos(hwnd, W.HWND(HWND_TOPMOST if on else HWND_NOTOPMOST), 0, 0, 0, 0, flags):
+            print(f"[ui] SetWindowPos failed: {ctypes.GetLastError()}")
         if not on and behind:
-            ctypes.windll.user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, flags)
+            set_pos(hwnd, W.HWND(HWND_BOTTOM), 0, 0, 0, 0, flags)
         widget._over_game = bool(on)
     except Exception as e:  # noqa: BLE001
         print(f"[ui] could not change the window's stacking: {e}")
