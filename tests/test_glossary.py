@@ -64,3 +64,13 @@ def test_shipped_dictionary_loads_and_has_each_section():
     for lang in ("ru", "uk", "pl", "tr", "any"):
         assert data[lang]["terms"], lang
     assert glossary.Glossary(path).phrase("есть", ["ru"])
+
+
+def test_transliterated_swearing_is_swapped_in_the_english():
+    g = glossary.Glossary(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                       "slang.json"))
+    assert g.fix_output("Watch the left, blyat!") == "Watch the left, fuck!"
+    assert g.fix_output("Blyat, go nahui") == "Fuck, go fuck yourself"
+    assert g.fix_output("Sukiyaki for dinner") == "Sukiyaki for dinner"      # whole words only
+    assert g.phrase("ахахах", ["ru"]) == "Haha"
+    assert g.phrase("kurwa", ["pl"]) == "Fuck!"

@@ -34,7 +34,7 @@ def test_cache_keeps_the_source_language(monkeypatch):
     t = _ChainTranslator("English")
     calls = []
 
-    def fake_google(text):
+    def fake_google(text, source=None):
         calls.append(text)
         t.last_source = "ru"
         return "hello"
@@ -60,3 +60,17 @@ def test_source_language_prefers_the_alphabet_over_a_stray_guess():
     assert pick("de", [], ["ru", "uk", "pl"]) == "de"         # nothing to go on
     assert pick("tg", ["ru"], []) == "tg"                      # any language picked
     assert pick("", ["pl"], ["ru"]) == "pl"                    # no detection at all
+
+
+def test_a_named_source_language_reaches_the_service_and_the_cache(monkeypatch):
+    t = _ChainTranslator("English")
+    seen = []
+
+    def fake_google(text, source=None):
+        seen.append(source)
+        return f"[{source}] {text}"
+
+    monkeypatch.setattr(t, "_via_google", fake_google)
+    assert t.translate("go kick maybe он cheater", "ru") == "[ru] go kick maybe он cheater"
+    assert t.translate("go kick maybe он cheater") == "[None] go kick maybe он cheater"
+    assert seen == ["ru", None]                       # cached apart, by language

@@ -204,7 +204,7 @@ class _ChainTranslator:
             pass
         return ""
 
-    def _via_google(self, text):
+    def _via_google(self, text, source=None):
         import requests
         now = time.monotonic()
         off = self.__dict__.setdefault("_endpoint_off_until", {})
@@ -212,7 +212,7 @@ class _ChainTranslator:
             if now < off.get(name, 0.0):
                 continue
             try:
-                r = requests.get(url, params={**params, "sl": self.source or "auto",
+                r = requests.get(url, params={**params, "sl": source or self.source or "auto",
                                               "tl": self.target, "q": text},
                                  timeout=6)
                 if r.status_code in self._THROTTLED:
@@ -232,12 +232,13 @@ class _ChainTranslator:
                 self._note(f"google-{name}", f"Google ({name}) translation failed: {e}")
         return None
 
-    def _via_mymemory(self, text):
+    def _via_mymemory(self, text, source=None):
         dst = _MYMEMORY_CODES.get(self.target)
         if not dst:
             return None
         from deep_translator import MyMemoryTranslator
-        for source in [self.source] if self.source else _guess_sources(text):
+        known = source or self.source
+        for source in [known] if known else _guess_sources(text):
             src = _MYMEMORY_CODES.get(source)
             if source == self.target or not src:
                 continue
@@ -257,19 +258,23 @@ class _ChainTranslator:
 
     CACHE_SIZE = 500
 
-    def translate(self, text):
+    def translate(self, text, source=None):
+        """`source` names the language when the caller knows it. Chat lines
+        with slang already swapped for English need it: half English, they
+        were taken for English and came back with the Russian untouched
+        ("го kick maybe он cheater")."""
         # Chat repeats itself ("gg", "nice", the same insult every round),
         # and each request spends quota on a service that is either
         # rate-limiting this connection (Google) or capped per day (MyMemory).
         # Only successes are cached, so a failure is retried next time.
-        key = text.strip()
+        key = (text.strip(), source)
         cache = self.__dict__.setdefault("_cache", {})
         if key in cache:
             cache[key] = cache.pop(key)          # most recently used goes last
             out, self.last_source = cache[key]
             return out
         self.last_source = ""
-        out = self._via_google(text) or self._via_mymemory(text)
+        out = self._via_google(text, source) or self._via_mymemory(text, source)
         if out:
             cache[key] = (out, self.last_source)
             if len(cache) > self.CACHE_SIZE:

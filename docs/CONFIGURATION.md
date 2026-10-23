@@ -176,7 +176,11 @@ Each language code has up to three sections:
 - **replace** swaps a word for its English *before* a chat line is sent to
   the translator, so the translation comes out right: `легко с вх играть`
   becomes "easy to play with wallhack" instead of "…with input". Use it only
-  for words with a clean one-word English equivalent.
+  for words with a clean one-word English equivalent that the translator gets
+  wrong: swapping in a word it already knows can make the rest worse.
+- **output** (under `any`) swaps words in the finished English caption, for
+  swearing the translators leave transliterated: "Don't touch me, blyat!"
+  becomes "Don't touch me, fuck!".
 
 A trailing `*` matches any ending, so `петух*` also catches `петуха`. Mind
 Russian's dropped vowels: `выблядок` becomes `выблядки`, so the stem must be

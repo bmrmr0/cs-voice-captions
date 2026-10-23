@@ -506,6 +506,9 @@ class Transcriber:
             text = self._clean(text, dedupe=not from_phrase)
             if not text:
                 return None
+            if self.tcfg.get("slang", True):
+                import glossary
+                text = glossary.get().fix_output(text)
             if original is None and self.tcfg.get("show_original"):
                 otext, _ = self._run(audio, task="transcribe", language=lang)
                 original = self._clean(otext)

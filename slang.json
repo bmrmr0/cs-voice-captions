@@ -1,5 +1,5 @@
 {
-  "_about": "Slang and swear words machine translation gets wrong. Per language: 'phrases' replace a caption when the whole message is just that phrase (repeats allowed: 'есть есть' matches 'есть'); 'terms' are explained in a note under the caption wherever they appear, and a message that is nothing but one term is replaced by its meaning, like a phrase; 'replace' words are swapped for their English before a chat line is sent to the translator, so the translation itself comes out right ('с вх' gave 'with input', 'с wallhack' gives 'with wallhack') -- only for words with a clean one-word equivalent, never for insults. A trailing * matches any ending ('петух*' also catches 'петуха'). Matching ignores case, punctuation and, for Latin-script languages, accents. 'any' is checked for every message, and is meant for transliterations and shorthand that look the same in any language. Add your own in slang.json in the app's settings folder; it is merged over this one.",
+  "_about": "Slang and swear words machine translation gets wrong. Per language: 'phrases' replace a caption when the whole message is just that phrase (repeats allowed: 'есть есть' matches 'есть'); 'terms' are explained in a note under the caption wherever they appear, and a message that is nothing but one term is replaced by its meaning, like a phrase; 'replace' words are swapped for their English before a chat line is sent to the translator, so the translation itself comes out right ('с вх' gave 'with input', 'с wallhack' gives 'with wallhack') -- only for words with a clean one-word equivalent, never for insults. A trailing * matches any ending ('петух*' also catches 'петуха'). Matching ignores case, punctuation and, for Latin-script languages, accents. 'output' words (in 'any') are swapped for their English in the finished caption, for the swearing translators leave transliterated ('blyat'). 'any' is checked for every message, and is meant for transliterations and shorthand that look the same in any language. Add your own in slang.json in the app's settings folder; it is merged over this one.",
 
   "ru": {
     "phrases": {
@@ -44,7 +44,18 @@
       "форсим": "Force buy!",
       "скинь": "Drop me a weapon!",
       "скинь мне": "Drop me a weapon!",
-      "дропни": "Drop me a weapon!"
+      "дропни": "Drop me a weapon!",
+      "ахах": "Haha",
+      "ахаха": "Haha",
+      "ахахах": "Haha",
+      "ахахаха": "Haha",
+      "ахахахах": "Haha",
+      "ахахахаха": "Haha",
+      "хах": "Haha",
+      "хаха": "Haha",
+      "хахах": "Haha",
+      "хахаха": "Haha",
+      "хахахаха": "Haha"
     },
     "terms": {
       "лоу": "low HP",
@@ -119,12 +130,12 @@
       "гандон*": "asshole (lit. 'condom')",
       "козел": "jerk (lit. 'goat')",
       "козл*": "jerk (lit. 'goat')",
-      "урод*": "freak, ugly bastard"
+      "урод*": "freak, ugly bastard",
+      "шалупон*": "scum, riffraff"
     },
     "replace": {
       "вх": "wallhack",
       "изи": "easy",
-      "нуб*": "noob",
       "раш": "rush",
       "рашим": "rush",
       "читер*": "cheater",
@@ -146,7 +157,10 @@
       "лоу": "low",
       "лвл*": "lvl",
       "катк*": "match",
-      "сейв": "save"
+      "сейв": "save",
+      "мб": "maybe",
+      "кик": "kick",
+      "шалупон*": "scum"
     }
   },
 
@@ -198,7 +212,9 @@
       "siema": "Hi!",
       "nara": "Bye!",
       "spoko": "No worries",
-      "sorki": "Sorry"
+      "sorki": "Sorry",
+      "kurwa": "Fuck!",
+      "kurwa mac": "Fucking hell!"
     },
     "terms": {
       "kurw*": "fuck! / whore",
@@ -316,6 +332,22 @@
       "fdp": "son of a bitch (Portuguese)",
       "hdp": "son of a bitch (Spanish)",
       "ptm": "fuck! (Spanish)"
+    },
+    "output": {
+      "blyat": "fuck",
+      "blyad": "fuck",
+      "blya": "fuck",
+      "bljat": "fuck",
+      "suka": "bitch",
+      "cyka": "bitch",
+      "nahui": "fuck yourself",
+      "nahuy": "fuck yourself",
+      "pizdec": "fucked",
+      "pizdets": "fucked",
+      "pidor": "faggot",
+      "pidar": "faggot",
+      "kurwa": "fuck",
+      "suki": "bitches"
     }
   }
 }

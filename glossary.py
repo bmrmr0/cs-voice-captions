@@ -52,8 +52,10 @@ def _words(text, lang):
 
 
 class _Table:
-    def __init__(self, lang, phrases, terms, replace=None):
+    def __init__(self, lang, phrases, terms, replace=None, output=None):
         self.lang = lang
+        # Words swapped in the finished English caption (see fix_output).
+        self.output = {_normalize(k, lang): v for k, v in (output or {}).items()}
         swaps = []
         for key, english in (replace or {}).items():
             prefix = key.rstrip().endswith("*")
@@ -152,11 +154,12 @@ class Glossary:
             for lang, section in source.items():
                 if lang.startswith("_") or not isinstance(section, dict):
                     continue
-                into = merged.setdefault(lang, {"phrases": {}, "terms": {}, "replace": {}})
-                for kind in ("phrases", "terms", "replace"):
+                into = merged.setdefault(lang, {"phrases": {}, "terms": {}, "replace": {},
+                                                "output": {}})
+                for kind in ("phrases", "terms", "replace", "output"):
                     if isinstance(section.get(kind), dict):
                         into[kind].update(section[kind])
-        self._tables = {lang: _Table(lang, s["phrases"], s["terms"], s["replace"])
+        self._tables = {lang: _Table(lang, s["phrases"], s["terms"], s["replace"], s["output"])
                         for lang, s in merged.items()}
         self._user_mtime = self._mtime()
 
@@ -234,6 +237,25 @@ class Glossary:
                 return word
 
             return _WORDS.sub(swap, text), swapped
+
+    def fix_output(self, text):
+        """The finished English caption with transliterated swearing the
+        translator left in ("Don't rape me, blyat!") swapped for its English
+        ("...fuck!"). Whole words only; a capital stays a capital."""
+        with self._lock:
+            self._maybe_reload()
+            table = self._tables.get("any")
+            if not table or not table.output or not text:
+                return text
+
+            def swap(m):
+                word = m.group(0)
+                english = table.output.get(_normalize(word, "any"))
+                if english is None:
+                    return word
+                return english[:1].upper() + english[1:] if word[:1].isupper() else english
+
+            return _WORDS.sub(swap, text)
 
     def terms(self, text, langs, limit=3, skip=()):
         """[(word, meaning), ...] for known terms in `text`. A word matched by

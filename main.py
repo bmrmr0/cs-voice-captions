@@ -304,7 +304,9 @@ class ChatWorker(threading.Thread):
                 # translator to recognise the language by, so sending it
                 # would come back empty. It already is the translation.
                 tr = (source if swapped and source.isascii()
-                      else translator.translate(source))
+                      else translator.translate(source, langs[0] if swapped and langs else None))
+                if slang and tr:
+                    tr = glossary.get().fix_output(tr)
                 if tr and tr.strip() and tr.strip() != text.strip():
                     original, text, translated = text, tr, True
                     source_lang = pick_source_language(
