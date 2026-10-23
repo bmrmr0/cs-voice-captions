@@ -82,8 +82,11 @@ Two downloads now: the single `CSVoiceCaptions.exe` as before, and
 - `translation.verify_language` is gone; the language is always checked.
 
 ### Fixed
-- `Ctrl+Alt+C` now brings the captions window back when it's minimized or
-  behind the game; the reply and settings windows open in front too.
+- `Ctrl+Alt+C` shows the captions window over the game, even when it was
+  minimized, without taking the mouse or keyboard from CS2; press it again
+  to put it away. The welcome window and the `-condebug` reminder don't take
+  the focus from the game either. Settings and the reply window open in
+  front.
 
 ## 1.0.0
 

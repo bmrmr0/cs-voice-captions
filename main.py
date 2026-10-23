@@ -122,7 +122,7 @@ from stt import Transcriber                       # noqa: E402
 from transcript import TranscriptWriter           # noqa: E402
 from ui import (Bridge, Overlay, History, TrayController,  # noqa: E402
                 CondebugReminder, should_remind_condebug, bring_to_front,
-                overlay_wants)
+                overlay_wants, game_has_focus)
 from settings_window import SettingsWindow        # noqa: E402
 from reply_window import ReplyWindow              # noqa: E402
 import autostart                                  # noqa: E402
@@ -455,7 +455,10 @@ def main():
     # thread before anything touches a widget.
     bridge.toggle_pause.connect(tray.toggle_pause)
     bridge.toggle_overlay.connect(tray.toggle_overlay)
-    bridge.show_window.connect(tray.show_window)
+    # The hotkey shows the window over the game without taking the focus
+    # (taking it pulled you out of the game and freed the mouse), and puts
+    # it back on a second press.
+    bridge.show_window.connect(tray.toggle_window_over_game)
     bridge.connection.connect(tray.set_connection)
     bridge.show_reply.connect(reply.open)
     bridge.update_available.connect(tray.notify_update)
@@ -518,6 +521,7 @@ def main():
     # options and, if it isn't there, say how to add it -- every start until
     # it's added (or the user says stop), or once when it can't be told.
     reminders = []
+    cs2_name = cfg.get("capture", {}).get("cs2_process_name", "cs2.exe")
 
     def show_welcome(status=None, check=False):
         from welcome_window import WelcomeWindow
@@ -527,7 +531,8 @@ def main():
         dlg = WelcomeWindow(cfg, status, on_settings=settings.open)
         dlg.finished.connect(lambda _r: reminders.remove(dlg) if dlg in reminders else None)
         reminders.append(dlg)            # keep it alive while it is open
-        bring_to_front(dlg)
+        # Over the game but without taking the focus, if the game has it.
+        bring_to_front(dlg, activate=not game_has_focus(cs2_name))
 
     tray.set_help(lambda: show_welcome(check=True))
 
@@ -559,7 +564,7 @@ def main():
 
         dlg.finished.connect(done)
         reminders.append(dlg)            # keep it alive while it is open
-        bring_to_front(dlg)              # not left behind CS2
+        bring_to_front(dlg, activate=not game_has_focus(cs2_name))   # over CS2, not behind it
 
     QTimer.singleShot(1500, remind_condebug)
     if cfg.get("updates", {}).get("check", True):

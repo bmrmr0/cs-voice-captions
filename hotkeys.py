@@ -76,7 +76,7 @@ def parse(spec):
 ACTIONS = {
     "toggle_pause": "Pause / resume",
     "toggle_overlay": "Show / hide the overlay",
-    "show_window": "Bring up the captions window",
+    "show_window": "Show / hide the captions window over the game",
     "reply": "Reply in chat",
 }
 

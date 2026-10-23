@@ -103,7 +103,7 @@ window.
 | `history.geometry` | `""` | Where the captions window was left, and its size. Saved when you move or resize it; delete it to reset. | |
 | `hotkeys.toggle_pause` | `"ctrl+alt+p"` | Pause / resume. | |
 | `hotkeys.toggle_overlay` | `"ctrl+alt+o"` | Show / hide the overlay. | |
-| `hotkeys.show_window` | `"ctrl+alt+c"` | Bring up the captions window. | |
+| `hotkeys.show_window` | `"ctrl+alt+c"` | Show the captions window over the game without taking the mouse; press again to put it away. | |
 | `hotkeys.reply` | `"ctrl+alt+r"` | Open the reply helper. | |
 | `hotkeys.enabled` | `true` | Register hotkeys at all. | |
 

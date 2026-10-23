@@ -158,14 +158,88 @@ class GeometryKeeper(QObject):
         self._save()
 
 
-def bring_to_front(widget):
-    """Show `widget` restored and in front, with the keyboard focus.
+def game_has_focus(process_name="cs2.exe"):
+    """True while the game is the window the keyboard and mouse go to."""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        import ctypes
+        import ctypes.wintypes as W
+        import psutil
+        pid = W.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(
+            ctypes.windll.user32.GetForegroundWindow(), ctypes.byref(pid))
+        return psutil.Process(pid.value).name().lower() == process_name.lower()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _show_without_focus(widget):
+    """Restore and show `widget` above the other windows, the game included,
+    without taking the focus: the game keeps the keyboard and mouse.
+    Taking the focus is what made Ctrl+Alt+C pull you out of the game.
+
+    It is made always-on-top to get there: Windows keeps an ordinary
+    window from another app below the one that has the focus (tested with
+    CS2 focused: raised, restored, even briefly topmost, it stayed under the
+    game). set_over_game(widget, False) puts it back to normal."""
+    widget.setAttribute(Qt.WA_ShowWithoutActivating, True)
+    try:
+        if not sys.platform.startswith("win"):
+            widget.show()
+            widget.raise_()
+            return
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = int(widget.winId())
+        if not widget.isVisible():
+            widget.show()
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 4)                      # SW_SHOWNOACTIVATE
+        set_over_game(widget, True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[ui] could not show the window: {e}")
+    finally:
+        widget.setAttribute(Qt.WA_ShowWithoutActivating, False)
+
+
+def set_over_game(widget, on, behind=False):
+    """Make `widget` always-on-top (over the game) or ordinary again,
+    without activating it. With `behind`, an ordinary window also goes to
+    the back, behind the game: dropping always-on-top alone leaves it
+    stacked above every ordinary window, the game included."""
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE, plus SWP_SHOWWINDOW
+        flags = 0x0001 | 0x0002 | 0x0010 | (0x0040 if on else 0)
+        HWND_BOTTOM = 1
+        hwnd = int(widget.winId())
+        ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST if on else HWND_NOTOPMOST,
+                                          0, 0, 0, 0, flags)
+        if not on and behind:
+            ctypes.windll.user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, flags)
+        widget._over_game = bool(on)
+    except Exception as e:  # noqa: BLE001
+        print(f"[ui] could not change the window's stacking: {e}")
+
+
+def bring_to_front(widget, activate=True):
+    """Show `widget` restored and in front -- with the keyboard focus, or
+    with `activate=False` without it (see _show_without_focus).
 
     show() and raise_() alone do neither reliably: a minimized window stays
     minimized, and Windows won't let a background app take the foreground
     from the game -- it flashes the taskbar button instead. A hotkey press
     is ours, though, so for that moment the input of the window in front
     can be shared with ours and the focus handed over."""
+    if not activate:
+        _show_without_focus(widget)
+        return
+    if getattr(widget, "_over_game", False):
+        set_over_game(widget, False)       # opened normally: ordinary again
     if widget.isMinimized():
         widget.showNormal()
     widget.show()
@@ -812,8 +886,18 @@ class TrayController:
             from PySide6.QtGui import QDesktopServices
             QDesktopServices.openUrl(QUrl(self._update_url))
 
-    def show_window(self):
-        bring_to_front(self.history)
+    def show_window(self, *_, activate=True):
+        """The captions window, in front, with the focus."""
+        bring_to_front(self.history, activate=activate)
+
+    def toggle_window_over_game(self):
+        """Ctrl+Alt+C: show the captions window over the game without taking
+        the focus, so the game keeps the mouse and keyboard; press again to
+        put it back to an ordinary window."""
+        if getattr(self.history, "_over_game", False) and self.history.isVisible():
+            set_over_game(self.history, False, behind=True)
+        else:
+            bring_to_front(self.history, activate=False)
 
     def quit(self):
         self.stop_event.set()

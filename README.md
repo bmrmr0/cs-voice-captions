@@ -86,7 +86,7 @@ has focus; they're also listed in the tray menu and in Settings:
 | --- | --- |
 | `Ctrl+Alt+O` | Show / hide the overlay |
 | `Ctrl+Alt+P` | Pause / resume |
-| `Ctrl+Alt+C` | Bring up the captions window |
+| `Ctrl+Alt+C` | Show the captions window over the game, without taking the mouse; again to put it away |
 | `Ctrl+Alt+R` | Reply in chat: type English, get the translation on the clipboard |
 
 <details>
